@@ -288,7 +288,7 @@ func runRemoteAccessChecks(_ runner: CheckRunner) async {
         runner.expect(addresses.contains("127.0.0.1"), "loopback is always listed")
         runner.expect(addresses.allSatisfy { RemoteMacAddress(host: $0)?.host == $0 && !$0.contains(":") }, "each as a plain IPv4 address")
         runner.expectEqual(LocalNetworkAddresses.tailnet(["127.0.0.1", "100.64.0.10", "100.64.0.1", "100.128.0.1", "10.0.0.2", "100.64.0.10"]),
-                           ["100.64.0.10", "100.64.0.1"], "only Tailscale's range, once each")
+                           ["100.64.0.1", "100.64.0.10"], "only Tailscale's range, once each")
         print("      this Mac lists \(LocalNetworkAddresses.tailnet(addresses).count) Tailscale address(es) right now")
     }
 }

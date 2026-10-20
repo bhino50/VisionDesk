@@ -16,7 +16,10 @@ import sys
 import zipfile
 
 
-SOURCE_ROOT_FILES = (".gitignore", "Package.swift", "README.md", "PRIVACY.md", "BUILD.md")
+SOURCE_ROOT_FILES = (
+    ".gitignore", "Package.swift", "README.md", "PRIVACY.md", "BUILD.md",
+    "LICENSE", "CONTRIBUTING.md", "SECURITY.md",
+)
 SOURCE_DIRECTORIES = ("Sources", "Tests", "VisionTests", "VisionApp", "script")
 SOURCE_DOCUMENTS = (
     "docs/RUSTDESK_INPUT.md",
@@ -34,6 +37,9 @@ FORBIDDEN_PARTS = {
     "xcuserdata", "__MACOSX", ".DS_Store", ".git", ".codex", "config", "evidence",
     "Headers", "PrivateHeaders", "Modules",
 }
+ENIGO_SOURCE_LICENSE = "docs/third-party/ENIGO-LICENSE.txt"
+ENIGO_APP_LICENSE = "Contents/Resources/ThirdPartyLicenses/ENIGO-LICENSE.txt"
+
 MAX_MEMBER_BYTES = 512 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024
 
@@ -169,6 +175,24 @@ def main() -> int:
             "VisionDesk-macOS-arm64.zip": apps[0],
             "VisionDesk-visionOS-arm64-unsigned.zip": apps[1],
         }
+        # Compare against the reviewed source notice, not merely a filename or nonempty file.
+        # Archive equality below also requires the identical notice in the zipped app.
+        required_licenses = (
+            (ENIGO_SOURCE_LICENSE, apps[0] / ENIGO_APP_LICENSE, "enigo-license"),
+            ("LICENSE", apps[0] / "Contents/Resources/LICENSE", "project-license"),
+            ("LICENSE", apps[1] / "LICENSE", "project-license"),
+        )
+        for source_name, app_license, category in required_licenses:
+            source_license = root / source_name
+            license_name = app_license.relative_to(artifacts).as_posix()
+            if not source_license.is_file() or source_license.is_symlink():
+                issue(source_name, "missing-or-symbolic-source-file")
+            elif not app_license.is_file() or app_license.is_symlink():
+                issue(license_name, "missing-or-symbolic-" + category)
+            else:
+                expected_license = source_license.read_bytes()
+                if not expected_license or app_license.read_bytes() != expected_license:
+                    issue(license_name, category + "-content-mismatch")
         for app in apps:
             if not app.is_dir():
                 issue(app.relative_to(artifacts).as_posix(), "missing-application")
@@ -248,7 +272,7 @@ def main() -> int:
     report = {
         "passed": not issues,
         "scope": "allowlisted source and prepared applications/archives" if artifacts else "allowlisted source",
-        "checks": ["credential signatures", "personal filesystem paths", "build-user identifiers", "current host interface IPv4", "UTF-16 text", "forbidden source names", "neutral Xcode signing settings"] + (["forbidden artifacts", "code-signing identity", "archive equality"] if artifacts else []),
+        "checks": ["credential signatures", "personal filesystem paths", "build-user identifiers", "current host interface IPv4", "UTF-16 text", "forbidden source names", "neutral Xcode signing settings"] + (["forbidden artifacts", "code-signing identity", "exact Enigo license", "exact project licenses", "archive equality"] if artifacts else []),
         "counts": counts,
         "sourceDigestSHA256": source_digest(root) if not any(i["category"] == "missing-or-symbolic-source-file" for i in issues) else None,
         "issues": issues,

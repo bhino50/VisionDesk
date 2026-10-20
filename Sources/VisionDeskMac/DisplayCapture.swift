@@ -252,7 +252,7 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
                 onFailure: { [weak self] reason in self?.reportEncoderFailure(reason) }
             )
             lock.lock()
-            guard !isStopped else {
+            guard !isStopped, !encoderFailed, !videoDisabled else {
                 lock.unlock()
                 created.invalidate()
                 return nil

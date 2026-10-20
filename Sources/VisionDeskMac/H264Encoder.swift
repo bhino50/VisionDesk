@@ -74,6 +74,7 @@ final class H264Encoder: @unchecked Sendable {
     /// The first frame of any session has to be a keyframe for a receiver to start at all.
     private var wantsKeyframe = true
     private var lastPresentation: CMTime?
+    private var outputRecovery = EncoderOutputRecovery()
 
     static func bitRate(width: Int, height: Int) -> Int {
         let target = Double(width * height) * bitsPerPixelPerFrame * Double(frameRate)
@@ -215,17 +216,27 @@ final class H264Encoder: @unchecked Sendable {
         lock.unlock()
         guard !stopped else { return }
 
-        guard status == noErr, !infoFlags.contains(.frameDropped), let sampleBuffer,
-              CMSampleBufferDataIsReady(sampleBuffer) else {
-            // A dropped or failed frame breaks the chain the next predicted frame assumes.
-            requestKeyframe()
-            return
+        let unit: EncodedUnit?
+        if status == noErr, !infoFlags.contains(.frameDropped), let sampleBuffer,
+           CMSampleBufferDataIsReady(sampleBuffer) {
+            unit = Self.unit(from: sampleBuffer)
+        } else {
+            unit = nil
         }
-        guard let unit = Self.unit(from: sampleBuffer) else {
+        lock.lock()
+        let response = isInvalidated ? EncoderOutputRecovery.Response.ignore
+            : outputRecovery.record(usable: unit != nil)
+        lock.unlock()
+        switch response {
+        case .deliver:
+            if let unit { onEncoded(unit) }
+        case .retry:
             requestKeyframe()
-            return
+        case .fail:
+            onFailure("The hardware H.264 encoder repeatedly failed to produce usable output. Falling back to image updates.")
+        case .ignore:
+            break
         }
-        onEncoded(unit)
     }
 
     private static func unit(from sampleBuffer: CMSampleBuffer) -> EncodedUnit? {
@@ -350,5 +361,26 @@ final class H264Encoder: @unchecked Sendable {
 
     private static func prefer(_ session: VTCompressionSession, _ key: CFString, _ value: CFTypeRef) {
         _ = VTSessionSetProperty(session, key: key, value: value)
+    }
+}
+
+/// Covers failures before an EncodedUnit exists, which DisplayCapture cannot count.
+/// Confined to the encoder lock; a terminal run reports once even if callbacks are queued.
+struct EncoderOutputRecovery {
+    enum Response: Equatable { case deliver, retry, fail, ignore }
+    static let maximumConsecutiveFailures = 8
+    private var consecutive = 0
+    private var failed = false
+
+    mutating func record(usable: Bool) -> Response {
+        guard !failed else { return .ignore }
+        if usable {
+            consecutive = 0
+            return .deliver
+        }
+        consecutive += 1
+        guard consecutive >= Self.maximumConsecutiveFailures else { return .retry }
+        failed = true
+        return .fail
     }
 }

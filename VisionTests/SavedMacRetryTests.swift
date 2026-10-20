@@ -1,5 +1,6 @@
 import DeskCore
 import Foundation
+import Network
 import XCTest
 @testable import DeskTransport
 @testable import VisionDesk
@@ -60,6 +61,44 @@ final class SavedMacRetryTests: XCTestCase {
         XCTAssertEqual(model.reconnectAttempt, 0)
         XCTAssertFalse(model.isReconnecting)
         XCTAssertEqual(keychain.writeCount, writes, "Connecting with the stored key rewrites nothing.")
+    }
+
+    func testOtherWindowsCannotRestartAnExhaustedRetryBudget() async throws {
+        let keychain = MemoryKeychain(), preferences = MemoryRememberedMacStore()
+        let key = PairingKey.generate()
+        _ = try await saveMac(key: key, keychain: keychain, preferences: preferences)
+        let log = ChannelLog()
+        let model = DeskClientModel(keys: Loopback.store(keychain), preferences: preferences,
+                                    retryDelays: [0, 0, 0, 0, 0],
+                                    makeConnection: { endpoint, key in
+                                        let channel = DeskConnection(
+                                            connection: NWConnection(to: endpoint, using: SecureParameters.make(key: key)),
+                                            handshakeTimeout: 0.1, idleTimeout: nil)
+                                        log.channels.append(channel)
+                                        return channel
+                                    })
+        let scene = UUID(), other = UUID()
+        defer { model.updateScene(other, phase: nil); model.updateScene(scene, phase: nil) }
+        model.updateScene(scene, phase: .active)
+        model.connectRemembered()
+        try await Loopback.waitUntil(timeout: 30) { model.retryExhausted }
+        XCTAssertEqual(log.channels.count, 6)
+        XCTAssertEqual(model.reconnectAttempt, 5)
+        let gaveUp = model.connectionMessage
+        model.updateScene(other, phase: .active)
+        model.updateScene(other, phase: .inactive)
+        model.updateScene(other, phase: nil)
+        try await Loopback.pause(0.2)
+        XCTAssertEqual(log.channels.count, 6)
+        XCTAssertTrue(model.retryExhausted)
+        XCTAssertEqual(model.connectionMessage, gaveUp)
+
+        model.updateScene(scene, phase: .inactive)
+        model.updateScene(scene, phase: .active)
+        XCTAssertFalse(model.retryExhausted)
+        try await Loopback.waitUntil { log.channels.count > 6 }
+        model.disconnect()
+        XCTAssertFalse(model.retryExhausted)
     }
 
     // MARK: Helpers

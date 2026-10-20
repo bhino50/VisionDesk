@@ -3,6 +3,7 @@ import DeskCore
 
 @MainActor
 func runVideoDeliveryChecks(_ runner: CheckRunner) async {
+    await runEncoderOutputRecoveryChecks(runner)
     func frame(_ sequence: UInt64, keyframe: Bool) -> EncodedVideoFrame {
         EncodedVideoFrame(width: 64, height: 64, sequence: sequence, isKeyframe: keyframe,
             payload: Data([0, 0, 0, 1, keyframe ? 0x65 : 0x41]),

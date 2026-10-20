@@ -21,6 +21,7 @@ final class DeskClientModel: ObservableObject {
     @Published private(set) var rememberedMac: RememberedMac?
     @Published private(set) var isReconnecting = false
     @Published private(set) var reconnectAttempt = 0
+    @Published private(set) var retryExhausted = false
     @Published private(set) var discoveryStatus = "Looking for nearby Macs…"
     @Published private(set) var connectionMessage: String?
     @Published private(set) var pairingPersistenceWarning: String?
@@ -43,12 +44,13 @@ final class DeskClientModel: ObservableObject {
     /// minute. Re-entering the foreground grants a fresh budget, which is what
     /// makes a Mac that was asleep for a while reachable again without this app
     /// retrying forever in the meantime.
-    static let reconnectDelays: [UInt64] = [1, 2, 4, 8, 16]
+    nonisolated static let reconnectDelays: [UInt64] = [1, 2, 4, 8, 16]
     /// One remembered Mac, one Keychain item. A fixed account cannot orphan a
     /// secret behind a changed address.
     private static let rememberedAccount = "remembered-mac"
 
     private let browser = DeskBrowser()
+    private let retryDelays: [UInt64]
     private let keys: PairingKeyStore
     private let preferences: any RememberedMacStore
     private let makeConnection: @MainActor (NWEndpoint, PairingKey) -> DeskConnection
@@ -95,8 +97,10 @@ final class DeskClientModel: ObservableObject {
     init(keys: PairingKeyStore = PairingKeyStore(),
          preferences: any RememberedMacStore = UserDefaultsRememberedMacStore(),
          linkPolicy: LinkMonitor.Policy = .standard,
+         retryDelays: [UInt64] = DeskClientModel.reconnectDelays,
          makeConnection: @escaping @MainActor (NWEndpoint, PairingKey) -> DeskConnection
             = { DeskConnection(endpoint: $0, key: $1) }) {
+        self.retryDelays = retryDelays
         self.keys = keys
         self.preferences = preferences
         self.monitor = LinkMonitor(policy: linkPolicy)
@@ -192,6 +196,17 @@ final class DeskClientModel: ObservableObject {
         canReconnectNow && monitor.allowsAutomaticRecovery
     }
 
+    /// Connection category only; diagnostics never need to expose private host addresses.
+    var connectionRouteLabel: String {
+        guard let route = (isLinked || isConnecting ? sessionRoute : nil) ?? retry?.route else {
+            return "No connection selected"
+        }
+        switch route {
+        case .service: return "Nearby network"
+        case .address: return "Direct connection"
+        }
+    }
+
     /// Seconds since the linked Mac last sent anything, or nil while there is no session.
     /// Read on demand rather than published, so a ticking display costs nothing elsewhere.
     func macSilence(at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) -> TimeInterval? {
@@ -205,7 +220,13 @@ final class DeskClientModel: ObservableObject {
         hasActiveWindow = scenePhases.values.contains(.active)
         if hasActiveWindow {
             startDiscovery()
-            resumeRetryIfNeeded()
+            if !previouslyActive {
+                if retryExhausted {
+                    reconnectAttempt = 0
+                    retryExhausted = false
+                }
+                resumeRetryIfNeeded()
+            }
         } else if previouslyActive {
             // Losing focus is transient. `canControl` already blocks input while no window is
             // active, so only the held button has to be lifted. Latching control off here
@@ -253,6 +274,7 @@ final class DeskClientModel: ObservableObject {
         }
         pairingPersistenceWarning = nil
         reconnectAttempt = 0
+        retryExhausted = false
         monitor.resetAutomaticRecoveries()
         attempt(RetryTarget(route: MacRoute(address), name: address.host, key: key,
                             origin: .typed, shouldRemember: remembersThisMac))
@@ -278,6 +300,7 @@ final class DeskClientModel: ObservableObject {
             return
         }
         reconnectAttempt = 0
+        retryExhausted = false
         monitor.resetAutomaticRecoveries()
         attempt(RetryTarget(route: remembered.route, name: remembered.name, key: key,
                             origin: .saved, shouldRemember: false))
@@ -298,6 +321,7 @@ final class DeskClientModel: ObservableObject {
         if isLinked { tearDown(message: nil, notifiesMac: false) }
         cancelRetry()
         reconnectAttempt = 0
+        retryExhausted = false
         attempt(target)
         // Reported as a reconnection across the attempt itself, as a scheduled one is.
         guard isConnecting else { return }
@@ -311,6 +335,7 @@ final class DeskClientModel: ObservableObject {
         cancelRetry()
         retry = nil
         reconnectAttempt = 0
+        retryExhausted = false
         let name = rememberedMac?.name ?? "this Mac"
         do {
             // The key goes first. A cleared preference with a surviving Keychain
@@ -374,6 +399,7 @@ final class DeskClientModel: ObservableObject {
                 self.pairingCode = ""
                 self.isReconnecting = false
                 self.reconnectAttempt = 0
+                self.retryExhausted = false
                 // From here a drop is a lost link, which this target may come back from.
                 self.retry?.hasLinked = true
                 self.monitor.linked(at: Self.now())
@@ -403,6 +429,7 @@ final class DeskClientModel: ObservableObject {
         cancelRetry()
         retry = nil
         reconnectAttempt = 0
+        retryExhausted = false
         tearDown(message: message)
     }
 
@@ -435,7 +462,7 @@ final class DeskClientModel: ObservableObject {
     /// control also reaches it after this Stop on the same ordered connection. A failed send is
     /// an ordinary drop, and the Stop is still pending for the session after it.
     private func replayStopIfPending() {
-        guard isLinked, let sessionRoute, stoppedRoutes.contains(sessionRoute) else { return }
+        guard isLinked, let sessionRoute, PendingStopsCodec.requiresStop(for: sessionRoute, in: stoppedRoutes) else { return }
         stopAwaitingAcknowledgement = true
         statusText = SessionCopy.controlStoppedStatus
         send(DeskMessage(kind: "stop"))
@@ -502,6 +529,7 @@ final class DeskClientModel: ObservableObject {
         // Nothing keeps the key in memory once nothing can use it.
         retry = nil
         reconnectAttempt = 0
+        retryExhausted = false
         isReconnecting = false
         connectionMessage = wasEstablished
             ? SessionCopy.connectionEnded(with: connectedName, reason: reason)
@@ -510,14 +538,14 @@ final class DeskClientModel: ObservableObject {
     }
 
     private func scheduleRetry(_ target: RetryTarget) {
-        let total = Self.reconnectDelays.count
+        let total = retryDelays.count
         guard reconnectAttempt < total else {
             isReconnecting = false
-            reconnectAttempt = 0
+            retryExhausted = true
             connectionMessage = SessionCopy.gaveUp(on: target.name, everConnected: target.hasLinked)
             return
         }
-        let seconds = Self.reconnectDelays[reconnectAttempt]
+        let seconds = retryDelays[reconnectAttempt]
         let attemptNumber = reconnectAttempt + 1
         reconnectAttempt = attemptNumber
         isReconnecting = true
@@ -545,7 +573,7 @@ final class DeskClientModel: ObservableObject {
     /// Reconnection is foreground-only, so a backoff dropped when the window went
     /// away picks up where it left off instead of starting from scratch.
     private func resumeRetryIfNeeded() {
-        guard let target = retry, target.isRetryable, !isLinked, !isConnecting, retryTask == nil else { return }
+        guard !retryExhausted, let target = retry, target.isRetryable, !isLinked, !isConnecting, retryTask == nil else { return }
         scheduleRetry(target)
     }
 

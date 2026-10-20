@@ -76,25 +76,43 @@ enum MacRoute: Hashable, Codable, Sendable {
 /// The preference-store form of the routes with a pending Stop: a JSON list of routes, and
 /// never a key or a code.
 ///
-/// Reading is defensive, because preferences sit outside this app's control between launches.
-/// Data that is too large or is not a JSON list reads as no routes. Inside a list, an entry that
-/// does not decode, or is not a valid route, is dropped and the rest are kept. Nothing read here
-/// can stop the app.
+/// Reading is defensive because preferences sit outside this app's control between launches.
+/// Invalid JSON reads as no routes, and invalid entries are ignored. An oversized record or
+/// route collection instead pauses every future connection: silently truncating it could lose
+/// a Stop the Mac never received. The wearer may request control after each Mac acknowledges
+/// the replayed Stop; that grant does not discard the unknown older pending decisions.
 enum PendingStopsCodec {
+    // An invalid service type cannot be discovered or dialled by the app. This legacy-format
+    // sentinel preserves a conservative Stop for every route if bounded storage overflows.
+    static let overflowStop = MacRoute.service(name: "VisionDesk pending Stop overflow",
+                                               type: "_visiondesk-stop-all._invalid", domain: "")
     static let maximumRoutes = 64
+
+    static func requiresStop(for route: MacRoute, in routes: Set<MacRoute>) -> Bool {
+        routes.contains(route) || routes.contains(overflowStop)
+    }
     static let maximumBytes = 64 * 1_024
 
     static func encode(_ routes: Set<MacRoute>) -> Data? {
         // Routes and keys both sorted, so the same routes are always written as the same bytes.
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
-        return try? encoder.encode(routes.filter(\.isValid).sorted { "\($0)" < "\($1)" })
+        let valid = routes.filter(\.isValid)
+        let ordered = valid.sorted { "\($0)" < "\($1)" }
+        guard valid.count <= maximumRoutes, !valid.contains(overflowStop),
+              let data = try? encoder.encode(ordered), data.count <= maximumBytes else {
+            return try? encoder.encode([overflowStop])
+        }
+        return data
     }
 
     static func decode(_ data: Data?) -> Set<MacRoute> {
-        guard let data, data.count <= maximumBytes,
-              let entries = try? JSONDecoder().decode([Entry?].self, from: data) else { return [] }
-        return Set(entries.lazy.compactMap { $0?.route }.filter(\.isValid).prefix(maximumRoutes))
+        guard let data else { return [] }
+        guard data.count <= maximumBytes else { return [overflowStop] }
+        guard let entries = try? JSONDecoder().decode([Entry?].self, from: data) else { return [] }
+        let routes = Set(entries.compactMap { $0?.route }.filter(\.isValid))
+        guard routes.count <= maximumRoutes, !routes.contains(overflowStop) else { return [overflowStop] }
+        return routes
     }
 
     /// One list entry, decoded on its own so a malformed one costs only itself.

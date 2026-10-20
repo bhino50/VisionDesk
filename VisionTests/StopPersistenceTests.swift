@@ -86,6 +86,30 @@ final class StopPersistenceTests: XCTestCase {
         assertNothingSecret(about: mac.key, in: suite)
     }
 
+    func testOverflowStopIsReplayedButCanBeResumedWithinTheSession() async throws {
+        let preferences = MemoryRememberedMacStore()
+        preferences.saveStoppedRoutes(Set((1...65).map { .address("127.0.0.1:\($0)") }))
+        let model = Loopback.model(preferences: preferences)
+        let mac = MockMac()
+        mac.emulatesConsent = true
+        let scene = UUID()
+        defer { model.updateScene(scene, phase: nil); mac.stop() }
+        model.updateScene(scene, phase: .active)
+        try mac.start(allowReconnect: true)
+        try await Loopback.waitUntil { mac.endpoint != nil }
+        model.connect(to: try XCTUnwrap(mac.endpoint), key: mac.key, name: "Overflow Mac")
+        try await Loopback.waitUntil(timeout: 15) { model.isLinked && mac.pausedByHeadset && model.canResumeControl
+                && mac.received.contains { $0.kind == "heartbeat" } }
+        let kinds = mac.received.map(\.kind)
+        XCTAssertLessThan(try XCTUnwrap(kinds.firstIndex(of: "stop")),
+                          try XCTUnwrap(kinds.firstIndex(of: "heartbeat")))
+        XCTAssertFalse(model.isMacControlEnabled)
+        model.resumeControl()
+        try await Loopback.waitUntil { model.isMacControlEnabled }
+        XCTAssertEqual(preferences.loadStoppedRoutes(), [PendingStopsCodec.overflowStop],
+                       "A grant can resume this session without forgetting unknown older Stop intents.")
+    }
+
     // MARK: Helpers
 
     /// What a fresh store reads from these preferences, as a newly launched app would.

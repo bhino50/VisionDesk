@@ -80,6 +80,10 @@ MAC_APP="$STAGE_DIR/macOS/VisionDeskMac.app"
 mkdir -p "$MAC_APP/Contents/MacOS"
 cp "$BIN_DIR/VisionDeskMac" "$MAC_APP/Contents/MacOS/VisionDeskMac"
 cp "$SOURCE_DIR/script/MacInfo.plist" "$MAC_APP/Contents/Info.plist"
+# Preserve the upstream license in every distributed app before code signing.
+mkdir -p "$MAC_APP/Contents/Resources/ThirdPartyLicenses"
+cp "$SOURCE_DIR/docs/third-party/ENIGO-LICENSE.txt" "$MAC_APP/Contents/Resources/ThirdPartyLicenses/ENIGO-LICENSE.txt"
+cp "$SOURCE_DIR/LICENSE" "$MAC_APP/Contents/Resources/LICENSE"
 
 # Xcode accepts a build-setting value as one argument. Its individual compiler arguments are
 # already whitespace-free because compilation uses the neutral temporary source root.
@@ -97,6 +101,7 @@ xcode_args=(
 VISION_APP="$STAGE_DIR/visionOS/VisionDesk.app"
 mkdir -p "$(dirname "$VISION_APP")"
 cp -R "$WORK_DIR/vision-build/Build/Products/Release-xros/VisionDesk.app" "$VISION_APP"
+cp "$SOURCE_DIR/LICENSE" "$VISION_APP/LICENSE"
 
 python3 - "$MAC_APP" "$VISION_APP" <<'CLEAN_APPS'
 from pathlib import Path

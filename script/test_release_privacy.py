@@ -5,7 +5,9 @@ import contextlib
 import io
 import json
 from pathlib import Path
+import subprocess
 import tempfile
+import zipfile
 import unittest
 from unittest.mock import patch
 
@@ -52,6 +54,86 @@ class ReleasePrivacyTests(unittest.TestCase):
         self.assertIn("current-host-ipv4", privacy.content_findings((address + ":58271").encode(), patterns))
         self.assertIn("current-host-ipv4", privacy.content_findings(address.encode("utf-16-le"), patterns))
         self.assertNotIn("current-host-ipv4", privacy.content_findings((address + "0").encode(), patterns))
+
+    def inspect_license_fixture(self, bundled_notice, *, omit_archive_notice=False, symbolic=False, project_license_fault=None):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve() / "source"
+            artifacts = root.parent / "artifacts"
+            source_notice = root / privacy.ENIGO_SOURCE_LICENSE
+            source_notice.parent.mkdir(parents=True)
+            source_notice.write_bytes(b"Synthetic upstream copyright and license notice.\n")
+            mac = artifacts / "macOS/VisionDeskMac.app"
+            vision = artifacts / "visionOS/VisionDesk.app"
+            notice = mac / privacy.ENIGO_APP_LICENSE
+            notice.parent.mkdir(parents=True)
+            vision.mkdir(parents=True)
+            project_notice = root / "LICENSE"
+            project_notice.write_bytes(b"Synthetic project MIT license notice.\n")
+            project_targets = {"macOS": mac / "Contents/Resources/LICENSE", "visionOS": vision / "LICENSE"}
+            for platform, target in project_targets.items():
+                fault = project_license_fault[1] if project_license_fault and project_license_fault[0] == platform else None
+                if fault == "missing":
+                    continue
+                if fault == "symbolic":
+                    target.symlink_to(project_notice)
+                else:
+                    target.write_bytes(b"Truncated" if fault == "mismatch" else project_notice.read_bytes())
+
+            if symbolic:
+                notice.symlink_to(source_notice)
+            elif bundled_notice is not None:
+                notice.write_bytes(bundled_notice)
+            for archive_name, app in (("VisionDesk-macOS-arm64.zip", mac),
+                                      ("VisionDesk-visionOS-arm64-unsigned.zip", vision)):
+                with zipfile.ZipFile(artifacts / archive_name, "w") as archive:
+                    for path in app.rglob("*"):
+                        if path.is_file() and not omit_archive_notice:
+                            archive.write(path, app.name + "/" + path.relative_to(app).as_posix())
+            output = io.StringIO()
+            signature = subprocess.CompletedProcess([], 0, b"Signature=adhoc\nTeamIdentifier=not set\n", b"")
+            with patch.object(privacy, "source_inventory", return_value=[source_notice, project_notice]), \
+                 patch.object(privacy, "detectors", return_value=[]), \
+                 patch.object(privacy.subprocess, "run", return_value=signature), \
+                 patch("sys.argv", ["privacy-inspection", "--source", str(root), "--artifacts", str(artifacts)]), \
+                 contextlib.redirect_stdout(output):
+                result = privacy.main()
+            return result, {entry["category"] for entry in json.loads(output.getvalue())["issues"]}
+
+    def test_exact_license_in_app_and_archive_passes(self):
+        result, issues = self.inspect_license_fixture(b"Synthetic upstream copyright and license notice.\n")
+        self.assertEqual((result, issues), (0, set()))
+
+    def test_missing_and_symbolic_app_license_rejected(self):
+        for symbolic in (False, True):
+            with self.subTest(symbolic=symbolic):
+                result, issues = self.inspect_license_fixture(None, symbolic=symbolic)
+                self.assertEqual(result, 1)
+                self.assertIn("missing-or-symbolic-enigo-license", issues)
+
+    def test_truncated_or_replaced_app_license_rejected(self):
+        for content in (b"", b"Synthetic upstream copyright", b"Unrelated license"):
+            with self.subTest(content=content):
+                result, issues = self.inspect_license_fixture(content)
+                self.assertEqual(result, 1)
+                self.assertIn("enigo-license-content-mismatch", issues)
+
+    def test_archive_cannot_omit_license_present_in_app(self):
+        result, issues = self.inspect_license_fixture(
+            b"Synthetic upstream copyright and license notice.\n", omit_archive_notice=True)
+        self.assertEqual(result, 1)
+        self.assertIn("archive-inventory-mismatch", issues)
+
+    def test_project_license_required_and_exact_on_both_platforms(self):
+        for platform in ("macOS", "visionOS"):
+            for fault in ("missing", "symbolic", "mismatch"):
+                with self.subTest(platform=platform, fault=fault):
+                    result, issues = self.inspect_license_fixture(
+                        b"Synthetic upstream copyright and license notice.\n",
+                        project_license_fault=(platform, fault))
+                    self.assertEqual(result, 1)
+                    category = ("project-license-content-mismatch" if fault == "mismatch"
+                                else "missing-or-symbolic-project-license")
+                    self.assertIn(category, issues)
 
     def test_nested_configuration_is_inventoried_and_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:

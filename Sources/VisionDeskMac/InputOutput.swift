@@ -116,7 +116,18 @@ final class InputOutput {
     /// A source tag lets the opt-in local diagnostic distinguish our posted events from a
     /// person's hardware input. Remote messages cannot set it. Checks pass a permission cache with
     /// fake probes, so they never depend on this Mac's own grants.
-    init(diagnosticTag: Int64 = 0, permission: InputPermissionCache = InputPermissionCache()) {
+    private let eventSink: (CGEvent) -> Void
+    private let displayBounds: (UInt32) -> CGRect?
+    private let uptime: () -> TimeInterval
+    private var workBudget = InputWorkBudget()
+
+    init(diagnosticTag: Int64 = 0, permission: InputPermissionCache = InputPermissionCache(),
+         eventSink: @escaping (CGEvent) -> Void = { $0.post(tap: .cghidEventTap) },
+         displayBounds: @escaping (UInt32) -> CGRect? = { CGDisplayIsOnline($0) != 0 ? CGDisplayBounds($0) : nil },
+         uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.eventSink = eventSink
+        self.displayBounds = displayBounds
+        self.uptime = uptime
         self.permission = permission
         source?.userData = diagnosticTag
     }
@@ -146,8 +157,22 @@ final class InputOutput {
     }
 
     func apply(_ message: DeskMessage) {
-        guard hasPermission, let id = message.displayID, CGDisplayIsOnline(id) != 0 else { return }
-        let point = Self.point(x: message.x, y: message.y, in: CGDisplayBounds(id))
+        guard message.isValid, hasPermission, let id = message.displayID,
+              let bounds = displayBounds(id) else { return }
+        // Reserve the entire operation before constructing/posting any events, so rejected
+        // text cannot be partially typed and click/key pairs cannot be left half-finished.
+        let chunks = message.action == "text" ? Self.textChunks(message.text ?? "") : []
+        let cost: Int
+        switch message.action {
+        case "text": cost = chunks.count * 2
+        case "doubleClick": cost = 6 // possible drag release + move + two click pairs
+        case "rightClick": cost = 4
+        case "leftDown", "scroll", "key": cost = 2
+        case "leftUp": cost = 0 // safety release must remain available after exhaustion
+        default: cost = 1
+        }
+        guard workBudget.reserve(cost, at: uptime()) else { return }
+        let point = Self.point(x: message.x, y: message.y, in: bounds)
         switch message.action {
         case "move":
             scrollRemainder = ScrollRemainder(); scrollDisplay = nil
@@ -184,8 +209,7 @@ final class InputOutput {
             if scrollDisplay != id { scrollRemainder = ScrollRemainder(); scrollDisplay = id }
             scroll(deltaX: message.deltaX, deltaY: message.deltaY, point: point)
         case "text":
-            guard let text = message.text, !text.isEmpty else { return }
-            for chunk in Self.textChunks(text) { type(chunk) }
+            for chunk in chunks { type(chunk) }
         case "key":
             guard let name = message.text, let shortcut = Self.keys[name] else { return }
             press(code: shortcut.0, flags: shortcut.1)
@@ -222,7 +246,7 @@ final class InputOutput {
         guard let event = CGEvent(scrollWheelEvent2Source: source, units: .pixel, wheelCount: 2,
                                   wheel1: wheelY, wheel2: wheelX, wheel3: 0) else { return }
         event.flags = []
-        event.post(tap: .cghidEventTap)
+        eventSink(event)
     }
 
     static let holdReconcileGrace: TimeInterval = 0.25
@@ -305,7 +329,7 @@ final class InputOutput {
             // event's modifiers into the next one. Unqualified text must never inherit a stale
             // Shift or Command, which would upper-case it or fire a menu shortcut instead.
             event.flags = []
-            event.post(tap: .cghidEventTap)
+            eventSink(event)
         }
     }
 
@@ -316,7 +340,7 @@ final class InputOutput {
               let up = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: false) else { return }
         for event in [down, up] {
             event.flags = flags
-            event.post(tap: .cghidEventTap)
+            eventSink(event)
         }
     }
 
@@ -350,7 +374,7 @@ final class InputOutput {
     @discardableResult
     private func post(_ type: CGEventType, point: CGPoint, button: CGMouseButton = .left, clickCount: Int64 = 1) -> Bool {
         guard let event = makeEvent(Step(type, point, button, clickCount)) else { return false }
-        event.post(tap: .cghidEventTap)
+        eventSink(event)
         lastPoint = point
         return true
     }
@@ -366,9 +390,25 @@ final class InputOutput {
             events.append((event, step.point))
         }
         for (event, point) in events {
-            event.post(tap: .cghidEventTap)
+            eventSink(event)
             lastPoint = point
         }
+        return true
+    }
+}
+
+/// Limits generated Quartz work, not just messages: one valid text packet may expand to
+/// hundreds of events. A token bucket admits ordinary typing while bounding bursts.
+struct InputWorkBudget {
+    static let capacity = 480.0
+    private var remaining = capacity
+    private var last: TimeInterval?
+
+    mutating func reserve(_ cost: Int, at now: TimeInterval) -> Bool {
+        if let last { remaining = min(Self.capacity, remaining + max(0, now - last) * Self.capacity) }
+        last = now
+        guard cost >= 0, Double(cost) <= remaining else { return false }
+        remaining -= Double(cost)
         return true
     }
 }

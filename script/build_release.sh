@@ -137,7 +137,7 @@ for app in (mac, vision):
         subprocess.run(["/usr/bin/xcrun", "strip", "-S", str(path)], check=True, capture_output=True)
     subprocess.run(["/usr/bin/xattr", "-cr", str(app)], check=True, capture_output=True)
 CLEAN_APPS
-/usr/bin/codesign --force --sign - --timestamp=none "$MAC_APP" > "$WORK_DIR/mac-signing.log" 2>&1
+/usr/bin/codesign --force --sign - --options runtime --timestamp=none "$MAC_APP" > "$WORK_DIR/mac-signing.log" 2>&1
 /usr/bin/codesign --verify --strict "$MAC_APP" >> "$WORK_DIR/mac-signing.log" 2>&1
 
 python3 - "$SOURCE_DIR" "$STAGE_DIR" "$XCODEBUILD" <<'ARCHIVES'
@@ -164,7 +164,7 @@ toolchain = subprocess.run([sys.argv[3], "-version"], capture_output=True, text=
 report = {
     "sourceDigestSHA256": module.source_digest(root),
     "configuration": "Release", "architecture": "arm64",
-    "macOSSigning": "ad-hoc; not notarized", "visionOSSigning": "unsigned; installer signing required",
+    "macOSSigning": "ad-hoc; hardened runtime; not notarized", "visionOSSigning": "unsigned; installer signing required",
     "visionOSMinimumVersion": "2.0", "toolchain": toolchain,
     "sourcePathsMapped": True, "personalDevelopmentProfilesIncluded": False,
     "physicalDeviceAcceptance": "separate; not certified by this build",

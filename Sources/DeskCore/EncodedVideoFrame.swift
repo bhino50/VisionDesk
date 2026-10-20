@@ -66,7 +66,10 @@ public struct EncodedVideoFrame: Codable, Equatable, Sendable {
               width * height <= Self.maximumPixels,
               sequence <= Self.maximumSequence,
               (1...Self.maximumPayloadBytes).contains(payload.count),
-              let types = Self.nalUnitTypes(in: payload) else { return false }
+              let types = Self.nalUnitTypes(in: payload),
+              // Parameter sets belong exclusively to the validated side channel. Reject
+              // extensions too: native decoding must never replace its admitted geometry.
+              types.allSatisfy({ [1, 5, 6, 9, 10, 11, 12].contains($0) }) else { return false }
         guard isKeyframe else {
             // A predicted frame carries no parameter sets and cannot contain an IDR picture;
             // accepting one would let a sender pass off a resynchronization point as a frame

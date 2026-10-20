@@ -8,6 +8,14 @@ VisionDesk implements no cloud account, analytics uploader, advertising SDK, rel
 
 ## Pairing and control
 
+On macOS, existing classic Keychain items are accepted only when their complete access
+policy matches this application's own policy. Unexpected trusted applications or ACL
+grants are refused before reading or rotating a pairing secret.
+
+Stop Input decisions made by the Mac owner or headset persist across remote-host
+restarts. Saved hosting resumes only within that consent and when the console session
+is awake and unlocked. New remote configuration requires the in-app settings flow.
+
 A securely generated 128-bit pairing secret authenticates the connection using TLS 1.2 PSK with AES-GCM. The protocol checks the negotiated suite and application protocol before accepting messages. This PSK suite does not provide forward secrecy: protect the pairing key and rotate it by forgetting the pairing if it may have been exposed.
 
 Remembered pairing secrets use the operating system Keychain and are not synchronized to other devices by this app. Preferences retain connection names, routes, and availability/control decisions. The person configuring the Mac decides whether remembered sessions may control it. Stop, stale heartbeats, lost permissions, sleep, and disconnection release or suspend input through the app's session controls.

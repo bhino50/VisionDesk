@@ -8,6 +8,8 @@ struct RemoteHostConfiguration: Equatable {
     var address: String
     var allowControl: Bool
     var keepAwake: Bool
+    var ownerPaused = false
+    var peerPaused = false
 
     static let disabled = Self(enabled: false, address: "", allowControl: false, keepAwake: true)
 
@@ -15,7 +17,9 @@ struct RemoteHostConfiguration: Equatable {
         Self(enabled: defaults.bool(forKey: "remote.enabled"),
              address: defaults.string(forKey: "remote.address") ?? "",
              allowControl: defaults.bool(forKey: "remote.allowControl"),
-             keepAwake: defaults.object(forKey: "remote.keepAwake") as? Bool ?? true)
+             keepAwake: defaults.object(forKey: "remote.keepAwake") as? Bool ?? true,
+             ownerPaused: defaults.bool(forKey: "remote.ownerPaused"),
+             peerPaused: defaults.bool(forKey: "remote.peerPaused"))
     }
 
     func save(to defaults: UserDefaults = .standard) {
@@ -23,6 +27,8 @@ struct RemoteHostConfiguration: Equatable {
         defaults.set(address, forKey: "remote.address")
         defaults.set(allowControl, forKey: "remote.allowControl")
         defaults.set(keepAwake, forKey: "remote.keepAwake")
+        defaults.set(ownerPaused, forKey: "remote.ownerPaused")
+        defaults.set(peerPaused, forKey: "remote.peerPaused")
     }
 }
 
@@ -142,8 +148,8 @@ struct HostSessionObservation: Equatable {
     var screenLocked: Bool
     var displaysAsleep: Bool
 
-    /// The session is this Mac's to share: on the console and unlocked.
-    var isAvailable: Bool { onConsole && !screenLocked }
+    /// The session is this Mac's to share: on the console, unlocked, and displays awake.
+    var isAvailable: Bool { onConsole && !screenLocked && !displaysAsleep }
 
     static func current() -> HostSessionObservation {
         let session = CGSessionCopyCurrentDictionary() as? [String: Any]
@@ -307,11 +313,8 @@ final class CompanionWindowLifecycle {
     func windowAppeared(_ model: CompanionModel, arguments: [String] = CommandLine.arguments) -> Bool {
         guard !launched else { return false }
         launched = true
-        if let index = arguments.firstIndex(of: "--enable-remote-host"), index + 1 < arguments.count {
-            model.configureRemoteAccess(address: arguments[index + 1], allowControl: true, keepAwake: true)
-        }
-        // Starts the saved host. Does nothing when the line above already restarted it; covers an
-        // address that was already the saved one, which configuring leaves running as it is.
+        // Launch arguments cannot grant capture or control consent. New remote setup must
+        // use the owner's existing configuration UI; only already-saved hosting starts here.
         model.startSavedHosting()
         return true
     }

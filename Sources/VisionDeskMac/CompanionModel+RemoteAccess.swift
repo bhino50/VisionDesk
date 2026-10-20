@@ -84,8 +84,12 @@ extension CompanionModel {
             return .refused
         }
         stop(headsetNotice: firstPairing ? HeadsetNotice.remoteTurnedOn : HeadsetNotice.addressChanged)
+        // An address edit does not renew input consent or erase a saved Stop.
+        ownerPausedControl = remoteConfiguration.ownerPaused
+        peerPausedControl = remoteConfiguration.peerPaused
         adoptRemoteConfiguration(RemoteHostConfiguration(enabled: true, address: endpoint.formatted,
-                                                         allowControl: allowControl, keepAwake: keepAwake))
+                                                         allowControl: allowControl, keepAwake: keepAwake,
+                                                         ownerPaused: ownerPausedControl, peerPaused: peerPausedControl))
         testMode = false
         if let newKey {
             revealPairingKey(newKey, for: keyReveal.firstPairing)
@@ -145,8 +149,8 @@ extension CompanionModel {
         var updated = remoteConfiguration
         updated.allowControl = allowed
         guard allowed else {
-            withdrawStandingControl()
             adoptRemoteConfiguration(updated)
+            withdrawStandingControl()
             remoteFeedback = connected ? .done("Control is off. The connected headset can only view this Mac now.") : nil
             return
         }

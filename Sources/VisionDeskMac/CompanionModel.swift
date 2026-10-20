@@ -180,10 +180,8 @@ final class CompanionModel: ObservableObject {
         self.loadLANKey = loadLANKey
         self.saveLANKey = saveLANKey
         self.saveLANConfiguration = saveLANConfiguration
-        if !remoteConfiguration.enabled {
-            ownerPausedControl = lanConfiguration.ownerPaused
-            peerPausedControl = lanConfiguration.peerPaused
-        }
+        ownerPausedControl = remoteConfiguration.enabled ? remoteConfiguration.ownerPaused : lanConfiguration.ownerPaused
+        peerPausedControl = remoteConfiguration.enabled ? remoteConfiguration.peerPaused : lanConfiguration.peerPaused
         self.localAddresses = localAddresses
         self.loadRemoteKey = loadRemoteKey
         self.saveRemoteKey = saveRemoteKey
@@ -201,6 +199,7 @@ final class CompanionModel: ObservableObject {
         let observed = liveSession()
         hostSession.locked = observed.screenLocked
         hostSession.sessionInactive = !observed.onConsole
+        hostSession.screensAsleep = observed.displaysAsleep
         inputPermission = input.hasPermission
         timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.watchdog() }
@@ -279,7 +278,6 @@ final class CompanionModel: ObservableObject {
         }
         catch { recoverRemote(after: "Could not access saved pairing. Unlock Keychain, then try again."); return }
         manuallyStopped = false
-        if resetControlPause && remoteConfiguration.enabled { ownerPausedControl = false; peerPausedControl = false }
         sessionRequestedControl = allowControl || reconnectControlAllowed
         encodedFrameCounts = [:]; encodedByteCount = 0
         busy = true; generation += 1
@@ -382,7 +380,7 @@ final class CompanionModel: ObservableObject {
         // wearer's last word was "Enable input on this Mac if needed."
         guard testMode || inputPermission else { publishStatus(HeadsetNotice.controlNeedsAccessibility); return }
         ownerPausedControl = false; peerPausedControl = false
-        persistLANPauses()
+        persistControlPauses()
         sessionRequestedControl = true
         controlEnabled = true; rateStart = ProcessInfo.processInfo.systemUptime; rateCount = 0
         publishStatus(testMode ? "Test input enabled. Gestures are counted without moving the pointer." : "Mac control enabled for all shared displays.")
@@ -392,7 +390,7 @@ final class CompanionModel: ObservableObject {
         autoEnablePending = false
         if ownerPause { ownerPausedControl = true }
         if peerPause { peerPausedControl = true }
-        if ownerPause || peerPause { persistLANPauses() }
+        if ownerPause || peerPause { persistControlPauses() }
         input.release(); controlEnabled = false
         publishStatus(reason)
     }
@@ -502,6 +500,7 @@ final class CompanionModel: ObservableObject {
     /// its next heartbeat, and one that reconnects at attach, unless it stopped control itself.
     func grantStandingControl() {
         ownerPausedControl = false
+        persistControlPauses()
         sessionRequestedControl = true
         autoEnablePending = connected && !controlEnabled && !peerPausedControl
     }

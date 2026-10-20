@@ -620,3 +620,196 @@ final class DisplayStreamVideoTests: XCTestCase {
         XCTAssertFalse(stream.needsKeyframe)
     }
 }
+
+// The barrier pauses synchronous native work, which task cancellation cannot interrupt.
+// Repeated epoch changes must retain this one worker rather than creating replacement tasks.
+private final class NativeWorkGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private let blockedKind: String
+    private var events: [String] = []
+    init(_ kind: String) { blockedKind = kind }
+    func enter(_ kind: String) {
+        lock.lock()
+        events.append(kind)
+        let shouldBlock = kind == blockedKind && events.filter { $0 == kind }.count == 1
+        lock.unlock()
+        if shouldBlock { semaphore.wait() }
+    }
+    var snapshot: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return events
+    }
+    func release() { semaphore.signal() }
+}
+
+@MainActor
+final class BoundedDisplayWorkerTests: XCTestCase {
+    func testResetStormCannotReplaceBlockedJPEGWorkerOrPublishItsObsoleteImage() async throws {
+        let gate = NativeWorkGate("jpeg")
+        defer { gate.release() }
+        let stream = DisplayStream(info: DeskFixtures.display, beforeNativeWork: gate.enter)
+        let jpeg = try XCTUnwrap(DeskFixtures.jpeg())
+        stream.accept(jpeg: jpeg)
+        try await Loopback.waitUntil { gate.snapshot == ["jpeg"] }
+        for _ in 0..<100 {
+            stream.clear()
+            stream.accept(jpeg: jpeg)
+        }
+        stream.clear()
+        try await Loopback.pause(0.1)
+        XCTAssertEqual(gate.snapshot, ["jpeg"])
+        gate.release()
+        try await Loopback.pause(0.2)
+        XCTAssertNil(stream.image)
+        XCTAssertNil(stream.receivedAt)
+        stream.accept(jpeg: jpeg)
+        try await Loopback.waitUntil { stream.image != nil }
+        XCTAssertEqual(gate.snapshot, ["jpeg", "jpeg"])
+    }
+
+    func testAlternatingSourcesRemainBoundedBehindBlockedVideo() async throws {
+        let gate = NativeWorkGate("video")
+        defer { gate.release() }
+        let stream = DisplayStream(info: DeskFixtures.display, beforeNativeWork: gate.enter)
+        let jpeg = try XCTUnwrap(DeskFixtures.jpeg())
+        let first = try XCTUnwrap(H264Fixture.frames.first)
+        stream.accept(video: first)
+        try await Loopback.waitUntil { gate.snapshot == ["video"] }
+        for _ in 0..<100 {
+            stream.clear()
+            stream.accept(jpeg: jpeg)
+            stream.accept(video: first)
+        }
+        stream.accept(jpeg: jpeg)
+        try await Loopback.pause(0.1)
+        XCTAssertEqual(gate.snapshot, ["video"])
+        XCTAssertNil(stream.image)
+        gate.release()
+        try await Loopback.waitUntil { stream.image != nil }
+        XCTAssertEqual(gate.snapshot, ["video", "retire", "jpeg"])
+        XCTAssertEqual(stream.image?.size.width, 32)
+        XCTAssertFalse(stream.usesVideo)
+    }
+
+    func testRetirementMustFinishBeforeAnyReplacementNativeWork() async throws {
+        let gate = NativeWorkGate("retire")
+        defer { gate.release() }
+        let stream = DisplayStream(info: DeskFixtures.display, beforeNativeWork: gate.enter)
+        let first = try XCTUnwrap(H264Fixture.frames.first)
+        let jpeg = try XCTUnwrap(DeskFixtures.jpeg())
+        stream.accept(video: first)
+        try await Loopback.waitUntil { stream.image != nil }
+        stream.clear()
+        try await Loopback.waitUntil { gate.snapshot == ["video", "retire"] }
+        for _ in 0..<100 {
+            stream.clear()
+            stream.accept(video: first)
+            stream.accept(jpeg: jpeg)
+        }
+        try await Loopback.pause(0.1)
+        XCTAssertEqual(gate.snapshot, ["video", "retire"])
+        gate.release()
+        try await Loopback.waitUntil { stream.image != nil }
+        XCTAssertEqual(gate.snapshot, ["video", "retire", "jpeg"])
+    }
+}
+
+extension H264DecoderTests {
+    func testOversizedCodedSurfaceCannotHideBehindSmallCropOrEnvelope() throws {
+        var allocations = 0
+        let decoder = H264Decoder(beforeSessionCreation: { allocations += 1 })
+        defer { decoder.invalidate() }
+        var frame = try XCTUnwrap(H264Fixture.frames.first)
+        // Baseline SPS: 8192x8192 coded surface, cropped down to 64x64. Both the
+        // envelope and visible crop fit; the native allocation would not.
+        frame.sps = try XCTUnwrap(Data(base64Encoded: "Z0IAM/QAQAAIA8AH8MAH8KA="))
+        XCTAssertTrue(frame.isValid)
+        XCTAssertNil(decoder.decode(frame))
+        XCTAssertEqual(allocations, 0)
+    }
+
+    func testSPSMismatchRejectedBeforeSessionCreation() throws {
+        var allocations = 0
+        let decoder = H264Decoder(beforeSessionCreation: { allocations += 1 })
+        defer { decoder.invalidate() }
+        var frame = try XCTUnwrap(H264Fixture.frames.first)
+        frame.width = 32
+        frame.height = 32
+        XCTAssertTrue(frame.isValid)
+        XCTAssertNil(decoder.decode(frame))
+        XCTAssertEqual(allocations, 0)
+    }
+
+    func testPredictedMetadataCannotChangeEstablishedDecoderGeometry() throws {
+        let decoder = H264Decoder()
+        defer { decoder.invalidate() }
+        XCTAssertNotNil(decoder.decode(try XCTUnwrap(H264Fixture.frames.first)))
+        var predicted = H264Fixture.frames[1]
+        predicted.width = 32
+        XCTAssertNil(decoder.decode(predicted))
+    }
+
+    func testInlineParameterSetCannotReachNativeSessionCreation() throws {
+        var allocations = 0
+        let decoder = H264Decoder(beforeSessionCreation: { allocations += 1 })
+        defer { decoder.invalidate() }
+        var frame = try XCTUnwrap(H264Fixture.frames.first)
+        frame.payload.append(SyntheticUnit.avcc([try XCTUnwrap(frame.sps)]))
+        XCTAssertFalse(frame.isValid)
+        XCTAssertNil(decoder.decode(frame))
+        XCTAssertEqual(allocations, 0)
+    }
+}
+
+private final class AllNativeWorkGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var entries = 0
+    func enter(_ kind: String) {
+        lock.lock(); entries += 1; lock.unlock()
+        semaphore.wait()
+    }
+    var count: Int { lock.lock(); defer { lock.unlock() }; return entries }
+    func release(_ count: Int) { for _ in 0..<count { semaphore.signal() } }
+}
+
+extension BoundedDisplayWorkerTests {
+    func testNewDisplayIDsCannotCreateNativeWorkersOrWaitersBeyondProcessCap() async throws {
+        let gate = AllNativeWorkGate()
+        defer { gate.release(200) }
+        let jpeg = try XCTUnwrap(DeskFixtures.jpeg())
+        var streams: [DisplayStream] = []
+        for id in 1...DisplayStream.maximumNativeWorkers {
+            var info = DeskFixtures.display
+            info.id = UInt32(id)
+            let stream = DisplayStream(info: info, beforeNativeWork: gate.enter)
+            streams.append(stream)
+            stream.accept(jpeg: jpeg)
+        }
+        try await Loopback.waitUntil { gate.count == DisplayStream.maximumNativeWorkers }
+        // This is the removal path: old stream work outlives its place in the model.
+        for stream in streams { stream.clear() }
+        streams.removeAll()
+        for id in 10..<110 {
+            var info = DeskFixtures.display
+            info.id = UInt32(id)
+            let replacement = DisplayStream(info: info, beforeNativeWork: gate.enter)
+            streams.append(replacement)
+            replacement.accept(jpeg: jpeg)
+        }
+        try await Loopback.pause(0.1)
+        XCTAssertEqual(gate.count, DisplayStream.maximumNativeWorkers)
+        gate.release(DisplayStream.maximumNativeWorkers)
+        try await Loopback.pause(0.2)
+        // If saturated callers queued suspended or detached waiters, releasing the old
+        // workers would start them now. Dropped work must stay dropped instead.
+        XCTAssertEqual(gate.count, DisplayStream.maximumNativeWorkers)
+        XCTAssertTrue(streams.allSatisfy { $0.image == nil })
+        let survivor = try XCTUnwrap(streams.last)
+        survivor.accept(jpeg: jpeg)
+        try await Loopback.waitUntil { gate.count == DisplayStream.maximumNativeWorkers + 1 }
+        gate.release(1)
+        try await Loopback.waitUntil { survivor.image != nil }
+    }
+}

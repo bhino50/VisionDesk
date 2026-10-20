@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import zipfile
+from xml.parsers.expat import ExpatError
 
 
 SOURCE_ROOT_FILES = (
@@ -129,6 +130,35 @@ def forbidden_name(name: str) -> bool:
     )
 
 
+def mac_hardening_findings(details: bytes, entitlement_data: bytes) -> set[str]:
+    """Require runtime enforcement without exceptions granting injected code access."""
+    issues: set[str] = set()
+    flags = re.search(rb"\bflags=0x([0-9a-fA-F]+)\b", details)
+    if flags is None or not int(flags.group(1), 16) & 0x10000:
+        issues.add("missing-hardened-runtime")
+    try:
+        entitlements = plistlib.loads(entitlement_data) if entitlement_data.strip() else {}
+        if not isinstance(entitlements, dict):
+            raise ValueError()
+    except (ValueError, TypeError, plistlib.InvalidFileException, ExpatError):
+        issues.add("unreadable-mac-entitlements")
+        return issues
+    forbidden = {
+        "com.apple.security.get-task-allow",
+        "get-task-allow",
+        "com.apple.security.cs.allow-dyld-environment-variables",
+        "com.apple.security.cs.disable-library-validation",
+        "com.apple.security.cs.allow-unsigned-executable-memory",
+        "com.apple.security.cs.disable-executable-page-protection",
+        "com.apple.security.cs.allow-jit",
+        "com.apple.security.cs.debugger",
+    }
+    if any(value is not False and (key in forbidden or key.startswith("com.apple.security.cs."))
+           for key, value in entitlements.items()):
+        issues.add("unsafe-mac-runtime-entitlement")
+    return issues
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
@@ -230,6 +260,16 @@ def main() -> int:
                     team = re.search(rb"^TeamIdentifier=(.*)$", details, re.MULTILINE)
                     if team and team.group(1).strip() != b"not set":
                         issue(bundle.relative_to(artifacts).as_posix(), "development-team-identifier")
+                    if bundle == apps[0]:
+                        entitlements = subprocess.run(
+                            ["/usr/bin/codesign", "-d", "--entitlements", ":-", str(bundle)],
+                            capture_output=True, check=False,
+                        )
+                        if entitlements.returncode:
+                            issue(bundle.relative_to(artifacts).as_posix(), "unreadable-mac-entitlements")
+                        else:
+                            for category in mac_hardening_findings(details, entitlements.stdout):
+                                issue(bundle.relative_to(artifacts).as_posix(), category)
                     verified = subprocess.run(
                         ["/usr/bin/codesign", "--verify", "--strict", str(bundle)],
                         capture_output=True, check=False,
@@ -280,7 +320,7 @@ def main() -> int:
     report = {
         "passed": not issues,
         "scope": "allowlisted source and prepared applications/archives" if artifacts else "allowlisted source",
-        "checks": ["credential signatures", "personal filesystem paths", "build-user identifiers", "current host interface IPv4", "UTF-16 text", "forbidden source names", "neutral Xcode signing settings"] + (["forbidden artifacts", "code-signing identity", "exact Enigo license", "exact project licenses", "archive equality"] if artifacts else []),
+        "checks": ["credential signatures", "personal filesystem paths", "build-user identifiers", "current host interface IPv4", "UTF-16 text", "forbidden source names", "neutral Xcode signing settings"] + (["forbidden artifacts", "code-signing identity", "hardened runtime and entitlements", "exact Enigo license", "exact project licenses", "archive equality"] if artifacts else []),
         "counts": counts,
         "sourceDigestSHA256": source_digest(root) if not any(i["category"] == "missing-or-symbolic-source-file" for i in issues) else None,
         "issues": issues,

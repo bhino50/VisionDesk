@@ -42,7 +42,7 @@ availability; simply closing the companion window can leave sharing active in it
 
 ## Install the preview
 
-Get the [0.2.1 release](https://github.com/bhino50/VisionDesk/releases/tag/v0.2.1),
+Get the [0.2.2 release](https://github.com/bhino50/VisionDesk/releases/tag/v0.2.2),
 then follow [BUILD.md](../BUILD.md). The Mac build is ad-hoc signed and unnotarized.
 The unsigned visionOS build needs your Apple development signing and provisioning.
 It cannot be installed directly as a consumer download.

@@ -4,6 +4,7 @@
 import contextlib
 import io
 import json
+import plistlib
 from pathlib import Path
 import subprocess
 import tempfile
@@ -55,7 +56,8 @@ class ReleasePrivacyTests(unittest.TestCase):
         self.assertIn("current-host-ipv4", privacy.content_findings(address.encode("utf-16-le"), patterns))
         self.assertNotIn("current-host-ipv4", privacy.content_findings((address + "0").encode(), patterns))
 
-    def inspect_license_fixture(self, bundled_notice, *, omit_archive_notice=False, symbolic=False, project_license_fault=None):
+    def inspect_license_fixture(self, bundled_notice, *, omit_archive_notice=False, symbolic=False, project_license_fault=None,
+                                mac_flags=b"flags=0x10000(runtime)", mac_entitlements=b""):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve() / "source"
             artifacts = root.parent / "artifacts"
@@ -90,10 +92,15 @@ class ReleasePrivacyTests(unittest.TestCase):
                         if path.is_file() and not omit_archive_notice:
                             archive.write(path, app.name + "/" + path.relative_to(app).as_posix())
             output = io.StringIO()
-            signature = subprocess.CompletedProcess([], 0, b"Signature=adhoc\nTeamIdentifier=not set\n", b"")
+            signature = subprocess.CompletedProcess([], 0, b"Signature=adhoc\nTeamIdentifier=not set\n" + mac_flags + b"\n", b"")
+
+            def signing_result(command, **kwargs):
+                if "--entitlements" in command:
+                    return subprocess.CompletedProcess(command, 0, mac_entitlements, b"")
+                return signature
             with patch.object(privacy, "source_inventory", return_value=[source_notice, project_notice]), \
                  patch.object(privacy, "detectors", return_value=[]), \
-                 patch.object(privacy.subprocess, "run", return_value=signature), \
+                 patch.object(privacy.subprocess, "run", side_effect=signing_result), \
                  patch("sys.argv", ["privacy-inspection", "--source", str(root), "--artifacts", str(artifacts)]), \
                  contextlib.redirect_stdout(output):
                 result = privacy.main()
@@ -102,6 +109,33 @@ class ReleasePrivacyTests(unittest.TestCase):
     def test_exact_license_in_app_and_archive_passes(self):
         result, issues = self.inspect_license_fixture(b"Synthetic upstream copyright and license notice.\n")
         self.assertEqual((result, issues), (0, set()))
+
+    def test_mac_release_without_runtime_is_rejected_even_with_valid_signature(self):
+        for flags in (b"", b"flags=0x0(none)", b"flags=0x1000(library-validation)"):
+            result, issues = self.inspect_license_fixture(
+                b"Synthetic upstream copyright and license notice.\n", mac_flags=flags)
+            self.assertEqual(result, 1)
+            self.assertIn("missing-hardened-runtime", issues)
+
+    def test_mac_release_with_runtime_exceptions_is_rejected(self):
+        for key in ("com.apple.security.get-task-allow", "get-task-allow",
+                    "com.apple.security.cs.allow-dyld-environment-variables",
+                    "com.apple.security.cs.disable-library-validation",
+                    "com.apple.security.cs.allow-unsigned-executable-memory",
+                    "com.apple.security.cs.disable-executable-page-protection",
+                    "com.apple.security.cs.future-runtime-exception",
+                    "com.apple.security.cs.allow-jit", "com.apple.security.cs.debugger"):
+            result, issues = self.inspect_license_fixture(
+                b"Synthetic upstream copyright and license notice.\n",
+                mac_entitlements=plistlib.dumps({key: True}))
+            self.assertEqual(result, 1)
+            self.assertIn("unsafe-mac-runtime-entitlement", issues)
+
+    def test_mac_release_entitlements_fail_closed_and_explicit_false_is_safe(self):
+        for data in (b"not a plist", plistlib.dumps(["unexpected"]), b'<?xml version="1.0"?><plist><dict>'):
+            self.assertIn("unreadable-mac-entitlements", privacy.mac_hardening_findings(b"flags=0x10000", data))
+        self.assertFalse(privacy.mac_hardening_findings(
+            b"flags=0x10000", plistlib.dumps({"com.apple.security.get-task-allow": False})))
 
     def test_missing_and_symbolic_app_license_rejected(self):
         for symbolic in (False, True):

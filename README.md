@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>Up to four Mac displays. A movable Vision Pro window for each one.</strong><br>
-  <a href="https://github.com/bhino50/VisionDesk/releases/tag/v0.2.1">Download the preview</a> ·
+  <a href="https://github.com/bhino50/VisionDesk/releases/tag/v0.2.2">Download the preview</a> ·
   <a href="BUILD.md">Build &amp; install</a> ·
   <a href="docs/VISUAL_GUIDE.md">Visual walkthrough</a> ·
   <a href="LICENSE">MIT licensed</a>

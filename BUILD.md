@@ -56,6 +56,14 @@ Run after the final source snapshot has passed review and the appropriate tests:
 
 The script builds **Release**, never installs or launches either app, and refuses to overwrite an existing output directory. Set `VISION_DESK_RELEASE_DIR` to a new output directory to create another build. Build work happens in a temporary directory; a failed run preserves that directory for local diagnosis and prints its location. Build logs may include local tool details and must remain private.
 
+The Mac release requires Hardened Runtime with no debugging, injected-library, or
+executable-memory exceptions. Packaging rejects a signature that lacks that protection.
+Ad-hoc signing does not provide Developer ID notarization.
+
+Remote access must be configured through the companion's settings. The `--remote-host`
+launcher opens the app and prints setup guidance; process arguments cannot grant new
+capture or control consent. Previously saved hosting keeps its existing configuration.
+
 Successful output in `release/` contains:
 
 | File | Purpose |

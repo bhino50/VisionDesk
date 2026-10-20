@@ -28,11 +28,39 @@ private enum DeskFrameDecoder {
     }
 }
 
+/// Process-wide admission, acquired before creating a task. A video decoder retains its
+/// lease between frames, so even synchronous destruction cannot escape the native-work cap.
+/// There are no suspended waiters or queued acquisition requests: saturation drops work.
+private final class NativeDecodeSlot {
+    static let capacity = 4
+    private static let lock = NSLock()
+    private static var count = 0
+    var decoder: H264Decoder?
+
+    static func acquire() -> NativeDecodeSlot? {
+        lock.lock(); defer { lock.unlock() }
+        guard count < capacity else { return nil }
+        count += 1
+        return NativeDecodeSlot()
+    }
+
+    private init() {}
+
+    deinit {
+        // Retire before returning capacity, including when an idle stream is removed.
+        decoder?.invalidate()
+        Self.lock.lock()
+        Self.count -= 1
+        Self.lock.unlock()
+    }
+}
+
 @MainActor
 final class DisplayStream: ObservableObject, Identifiable {
     /// Decoding a backlog only shows the user the past. The queue stays short, and overflowing
     /// it resynchronizes on the next keyframe instead of catching up through stale pictures.
     static let maximumPendingVideoFrames = 4
+    static let maximumNativeWorkers = NativeDecodeSlot.capacity
 
     let id: UInt32
     @Published private(set) var info: DisplayInfo
@@ -51,15 +79,17 @@ final class DisplayStream: ObservableObject, Identifiable {
     /// pipeline a transition handed the stream to; only `switchSource` changes it.
     private(set) var usesVideo = false
     private var latestJPEG: Data?
-    private var decodeTask: Task<Void, Never>?
+    private var workerTask: Task<Void, Never>?
+    private var decoderNeedsRetirement = false
+    private let beforeNativeWork: @Sendable (String) -> Void
     private var epoch = UUID()
 
     private var pendingVideo: [EncodedVideoFrame] = []
     private var sequencer = VideoStreamSequencer()
-    private var decoder: H264Decoder?
-    private var videoTask: Task<Void, Never>?
+    private var nativeSlot: NativeDecodeSlot?
 
-    init(info: DisplayInfo) {
+    init(info: DisplayInfo, beforeNativeWork: @escaping @Sendable (String) -> Void = { _ in }) {
+        self.beforeNativeWork = beforeNativeWork
         self.id = info.id
         self.info = info
     }
@@ -97,28 +127,7 @@ final class DisplayStream: ObservableObject, Identifiable {
         switchSource(toVideo: false)
         // While a frame decodes, keep only the newest replacement for this display.
         latestJPEG = jpeg
-        guard decodeTask == nil else { return }
-        let currentEpoch = epoch
-        decodeTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                guard let self, self.epoch == currentEpoch,
-                      let data = self.latestJPEG else { break }
-                self.latestJPEG = nil
-                let decoded = await Task.detached(priority: .userInitiated) {
-                    DeskFrameDecoder.decode(data)
-                }.value
-                guard !Task.isCancelled, self.epoch == currentEpoch else { return }
-                if let decoded {
-                    self.image = UIImage(cgImage: decoded.image)
-                    self.receivedAt = ProcessInfo.processInfo.systemUptime
-                    self.decodeWarning = nil
-                } else {
-                    self.decodeWarning = "A frame could not be displayed."
-                }
-            }
-            guard let self, self.epoch == currentEpoch else { return }
-            self.decodeTask = nil
-        }
+        startWorkerIfNeeded()
     }
 
     /// Admits one compressed access unit. Unlike a JPEG, a predicted frame is meaningless on
@@ -215,66 +224,107 @@ final class DisplayStream: ObservableObject, Identifiable {
             requireKeyframe()
             return
         }
-        guard videoTask == nil else { return }
-        let currentEpoch = epoch
-        videoTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                guard let self, self.epoch == currentEpoch, !self.pendingVideo.isEmpty else { break }
-                let next = self.pendingVideo.removeFirst()
-                let decoder = self.activeDecoder()
-                let decoded = await Task.detached(priority: .userInitiated) {
-                    decoder.decode(next).map(DecodedDeskFrame.init(image:))
-                }.value
-                // A stream that was cleared, resized or removed while this frame was decoding
-                // must not have its picture resurrected by the result.
-                guard !Task.isCancelled, self.epoch == currentEpoch else { return }
-                guard let decoded else {
-                    // The decoder has lost its reference chain. Retire it, and drop the
-                    // picture with it so a stale screen cannot keep control enabled.
-                    self.resetPipelines()
-                    self.sequencer.requireKeyframe()
-                    self.decodeWarning = "A frame could not be displayed."
-                    self.requireKeyframe()
+        startWorkerIfNeeded()
+    }
+
+    /// One retained worker owns all native work, including retirement, across every epoch.
+    /// Reset clears bounded pending state but cannot abandon a synchronous native operation.
+    /// A new source therefore waits for the old operation and its retirement to finish.
+    private func startWorkerIfNeeded() {
+        guard workerTask == nil else { return }
+        if nativeSlot == nil {
+            guard let acquired = NativeDecodeSlot.acquire() else {
+                latestJPEG = nil
+                pendingVideo.removeAll()
+                if usesVideo {
+                    sequencer.requireKeyframe()
+                    requireKeyframe()
+                }
+                return
+            }
+            nativeSlot = acquired
+        }
+        workerTask = Task { @MainActor [weak self] in
+            while let self {
+                let hook = self.beforeNativeWork
+                if self.decoderNeedsRetirement {
+                    self.decoderNeedsRetirement = false
+                    let old = self.nativeSlot?.decoder
+                    self.nativeSlot?.decoder = nil
+                    if let old {
+                        await Task.detached(priority: .userInitiated) {
+                            hook("retire")
+                            old.invalidate()
+                        }.value
+                    }
+                    continue
+                }
+                let currentEpoch = self.epoch
+                if let data = self.latestJPEG {
+                    self.latestJPEG = nil
+                    let decoded = await Task.detached(priority: .userInitiated) {
+                        hook("jpeg")
+                        return DeskFrameDecoder.decode(data)
+                    }.value
+                    guard self.epoch == currentEpoch else { continue }
+                    self.publish(decoded)
+                } else if !self.pendingVideo.isEmpty {
+                    let next = self.pendingVideo.removeFirst()
+                    let decoder = self.activeDecoder()
+                    let decoded = await Task.detached(priority: .userInitiated) {
+                        hook("video")
+                        return decoder.decode(next).map(DecodedDeskFrame.init(image:))
+                    }.value
+                    guard self.epoch == currentEpoch else { continue }
+                    guard let decoded else {
+                        self.resetPipelines()
+                        self.sequencer.requireKeyframe()
+                        self.decodeWarning = "A frame could not be displayed."
+                        self.requireKeyframe()
+                        continue
+                    }
+                    self.publish(decoded)
+                    self.needsKeyframe = self.sequencer.isAwaitingKeyframe
+                } else {
+                    // Keep video reference state under its lease. JPEG-only work has
+                    // no native state left, so another display may use the capacity now.
+                    if self.nativeSlot?.decoder == nil { self.nativeSlot = nil }
+                    self.workerTask = nil
                     return
                 }
-                self.image = UIImage(cgImage: decoded.image)
-                self.receivedAt = ProcessInfo.processInfo.systemUptime
-                self.decodeWarning = nil
-                self.needsKeyframe = self.sequencer.isAwaitingKeyframe
             }
-            guard let self, self.epoch == currentEpoch else { return }
-            self.videoTask = nil
+        }
+    }
+
+    private func publish(_ decoded: DecodedDeskFrame?) {
+        if let decoded {
+            image = UIImage(cgImage: decoded.image)
+            receivedAt = ProcessInfo.processInfo.systemUptime
+            decodeWarning = nil
+        } else {
+            decodeWarning = "A frame could not be displayed."
         }
     }
 
     private func activeDecoder() -> H264Decoder {
-        if let decoder { return decoder }
+        if let decoder = nativeSlot?.decoder { return decoder }
+        precondition(nativeSlot != nil, "Native work requires an admitted slot")
         let created = H264Decoder()
-        decoder = created
+        nativeSlot?.decoder = created
         return created
     }
 
-    /// Orphans every decode started before this call and empties both queues.
-    ///
-    /// The epoch bump is what makes an in-flight result unpublishable, and clearing both task
-    /// handles here is what keeps `accept` able to start a new one: an orphaned task returns on
-    /// the epoch check without clearing its own handle, so a bump that left a handle set would
-    /// make `guard decodeTask == nil` refuse every later frame for the life of the stream.
-    /// Those two steps may never be performed apart, which is why they share one function.
+    /// Invalidates results without cancelling the retained worker. Native calls cannot be
+    /// cancelled, so resetting its handle would permit another unbounded concurrent decode.
     private func invalidateInFlightWork() {
         epoch = UUID()
-        decodeTask?.cancel()
-        decodeTask = nil
-        videoTask?.cancel()
-        videoTask = nil
         latestJPEG = nil
         pendingVideo.removeAll()
     }
 
     private func retireDecoder() {
-        let oldDecoder = decoder
-        decoder = nil
-        if let oldDecoder { Task.detached { oldDecoder.invalidate() } }
+        decoderNeedsRetirement = true
+        startWorkerIfNeeded()
     }
 
     /// Invalidates in-flight results, queued frames and decoder reference state. Overflow

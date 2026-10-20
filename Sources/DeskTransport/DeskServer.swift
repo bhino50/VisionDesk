@@ -28,6 +28,8 @@ public final class DeskServer {
     private var listener: NWListener?
     private var generation: UInt64 = 0
     private var pending: [ObjectIdentifier: DeskConnection] = [:]
+    private var pendingOrder: [(id: ObjectIdentifier, admitted: TimeInterval)] = []
+    private let minimumHandshakeResidency: TimeInterval = 1
     private var activeConnection: DeskConnection?
     /// Whether the current listener outlives an authenticated session.
     private var allowsReconnect = false
@@ -137,11 +139,27 @@ public final class DeskServer {
                 // The active-session check is what refuses a second device while
                 // one is connected, which is the only guard left in reconnect mode.
                 guard let self, self.generation == generation, self.listener != nil,
-                      self.activeConnection == nil, self.pending.count < self.maximumPendingHandshakes,
+                      self.activeConnection == nil,
                       admission.admits(peerHost: HandshakeAdmission.host(of: connection.endpoint),
                                        pendingHosts: self.pending.values.map(\.endpointHost)) else {
                     connection.cancel()
                     return
+                }
+                // A stalled collection of different sources cannot monopolize all slots.
+                // Each admitted peer gets a protected TLS progress window; at capacity,
+                // rotate the oldest eligible handshake. This bounds cancellation churn
+                // without an arrival-rate gate that could also lock out a valid peer.
+                self.pendingOrder.removeAll { self.pending[$0.id] == nil }
+                if self.pending.count >= self.maximumPendingHandshakes {
+                    guard let oldest = self.pendingOrder.first,
+                          ProcessInfo.processInfo.systemUptime - oldest.admitted >= self.minimumHandshakeResidency,
+                          let evicted = self.pending.removeValue(forKey: oldest.id) else {
+                        connection.cancel()
+                        return
+                    }
+                    self.pendingOrder.removeFirst()
+                    evicted.stateObserver = nil
+                    evicted.cancel()
                 }
                 self.beginHandshake(connection, generation: generation)
             }
@@ -170,6 +188,7 @@ public final class DeskServer {
         allowsReconnect = false
         let connections = Array(pending.values) + (activeConnection.map { [$0] } ?? [])
         pending.removeAll()
+        pendingOrder.removeAll()
         activeConnection = nil
         for connection in connections {
             connection.stateObserver = nil
@@ -190,6 +209,7 @@ public final class DeskServer {
         let channel = DeskConnection(connection: connection, handshakeTimeout: handshakeTimeout, frameTimeout: frameTimeout, idleTimeout: idleTimeout)
         let id = ObjectIdentifier(channel)
         pending[id] = channel
+        pendingOrder.append((id, ProcessInfo.processInfo.systemUptime))
         channel.stateObserver = { [weak self, weak channel] state in
             guard let self, let channel, self.generation == generation else { return }
             switch state {
@@ -204,6 +224,7 @@ public final class DeskServer {
                 if !self.allowsReconnect { self.stopListening() }
                 let otherHandshakes = Array(self.pending.values)
                 self.pending.removeAll()
+                self.pendingOrder.removeAll()
                 for other in otherHandshakes {
                     other.stateObserver = nil
                     other.cancel()

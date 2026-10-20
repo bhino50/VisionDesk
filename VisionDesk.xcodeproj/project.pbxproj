@@ -115,6 +115,24 @@
 			<key>fileRef</key>
 			<string>35D4B1E60797A3E404719E4A</string>
 		</dict>
+		<key>EBA85EE37F3928D6B8289904</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/DeskCore/H264Geometry.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>AE3A83DD8032944331A609BB</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>EBA85EE37F3928D6B8289904</string>
+		</dict>
 		<key>79201433A92A94A7E8F7D09C</key>
 		<dict>
 			<key>isa</key>
@@ -163,6 +181,7 @@
 				<string>B710EEDA57D301AAC950EE2E</string>
 				<string>4C66AC22A9B4921209DA0918</string>
 				<string>35D4B1E60797A3E404719E4A</string>
+				<string>EBA85EE37F3928D6B8289904</string>
 				<string>79201433A92A94A7E8F7D09C</string>
 				<string>E1DA05804194958AB5C29299</string>
 			</array>
@@ -181,6 +200,7 @@
 				<string>6BBE218D79445078BBB30382</string>
 				<string>F42EC961FCE9D88B8CBB45E2</string>
 				<string>A4D20723738E254F1A4A94AB</string>
+				<string>AE3A83DD8032944331A609BB</string>
 				<string>2B89A2675CEC441FD15353F2</string>
 				<string>168C4F32F9F49EAF5755A56F</string>
 			</array>
@@ -227,9 +247,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>3</string>
+				<string>4</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.2.1</string>
+				<string>0.2.2</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -292,9 +312,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>3</string>
+				<string>4</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.2.1</string>
+				<string>0.2.2</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -574,9 +594,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>3</string>
+				<string>4</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.2.1</string>
+				<string>0.2.2</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -639,9 +659,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>3</string>
+				<string>4</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.2.1</string>
+				<string>0.2.2</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -1315,9 +1335,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>3</string>
+				<string>4</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.2.1</string>
+				<string>0.2.2</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -1377,9 +1397,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>3</string>
+				<string>4</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.2.1</string>
+				<string>0.2.2</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -2030,9 +2050,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>3</string>
+				<string>4</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.2.1</string>
+				<string>0.2.2</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -2091,9 +2111,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>3</string>
+				<string>4</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.2.1</string>
+				<string>0.2.2</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>

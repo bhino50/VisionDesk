@@ -9,19 +9,7 @@ case "$MODE" in run|--build-only|--verify|--capture-check|--input-check|--remote
 # Decided once, so the modes that launch and then validate a runtime report are not
 # re-derived from the same three-way test at each use below.
 REPORT_MODE=0
-case "$MODE" in --verify|--capture-check|--input-check|--remote-host) REPORT_MODE=1 ;; esac
-if [[ "$MODE" == "--remote-host" ]]; then
-    : "${VISION_DESK_REMOTE_ADDRESS:?Set the verified Tailscale IPv4 address of this Mac}"
-    python3 - "$VISION_DESK_REMOTE_ADDRESS" <<'ADDRESS_PY'
-import ipaddress, sys
-try:
-    address = ipaddress.IPv4Address(sys.argv[1])
-    if address not in ipaddress.IPv4Network('100.64.0.0/10'):
-        raise ValueError()
-except ValueError:
-    raise SystemExit('VISION_DESK_REMOTE_ADDRESS must be this Mac\'s Tailscale IPv4 address (100.x.x.x).')
-ADDRESS_PY
-fi
+case "$MODE" in --verify|--capture-check|--input-check) REPORT_MODE=1 ;; esac
 DEVELOPER_DIR="$(visiondesk_resolve_developer_dir)" || exit 1
 export DEVELOPER_DIR
 export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-$ROOT_DIR/.build/clang-module-cache}"
@@ -116,15 +104,16 @@ case "$MODE" in
                 mv "$ROOT_DIR/dist/input-latency-check.json" "$ROOT_DIR/.build/input-latency-check.$REPORT_ID.json"
             fi
             /usr/bin/open -n "$APP_BUNDLE" --args --input-latency-check --runtime-report-id "$REPORT_ID"
-        elif [[ "$MODE" == "--remote-host" ]]; then
-            # The address was required and validated during preflight, before anything was built.
-            /usr/bin/open -n "$APP_BUNDLE" --args --enable-remote-host "$VISION_DESK_REMOTE_ADDRESS" --runtime-report --runtime-report-id "$REPORT_ID"
         elif [[ "$MODE" == "--capture-check" ]]; then
             /usr/bin/open -n "$APP_BUNDLE" --args --runtime-report --runtime-report-id "$REPORT_ID" --capture-check
         elif [[ "$MODE" == "--verify" ]]; then
             /usr/bin/open -n "$APP_BUNDLE" --args --runtime-report --runtime-report-id "$REPORT_ID"
         else
             /usr/bin/open -n "$APP_BUNDLE"
+            if [[ "$MODE" == "--remote-host" ]]; then
+                echo "Open Settings & Troubleshooting → Remote Access in VisionDesk to review and enable remote sharing."
+                echo "This launcher does not grant capture or control; previously saved hosting keeps its existing consent."
+            fi
         fi
         if ((REPORT_MODE)); then
             for ((attempt=0; attempt<300; attempt++)); do
@@ -155,8 +144,6 @@ try:
     os.kill(process_id, 0)
 except (KeyError, ValueError, OSError):
     raise SystemExit('The reported companion process is not running or has an invalid identifier.')
-if sys.argv[4] == '--remote-host' and not report.get('sharing'):
-    raise SystemExit('The companion launched but remote sharing did not start. Check its status and Tailscale address.')
 print('Fresh companion launch verified. Permission and capture results are in dist/runtime-report.json.')
 REPORT_PY
         fi

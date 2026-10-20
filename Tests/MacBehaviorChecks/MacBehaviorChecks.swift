@@ -13,6 +13,7 @@ struct ChecksMain {
         print("")
 
         let runner = CheckRunner()
+        await runSecurityBoundaryChecks(runner)
         await runCompanionLifecycleChecks(runner)
         await runCompanionWindowChecks(runner)
         await runRemoteAccessChecks(runner)

@@ -66,12 +66,8 @@ public struct SystemPairingKeychain: PairingKeychain {
     public func addItem(_ attributes: [String: Any]) -> OSStatus {
         #if os(macOS)
         var attributes = attributes
-        var application: SecTrustedApplication?
-        let applicationStatus = SecTrustedApplicationCreateFromPath(nil, &application)
-        guard applicationStatus == errSecSuccess, let application else { return applicationStatus }
-        var access: SecAccess?
-        let accessStatus = SecAccessCreate("VisionDesk remembered pairing" as CFString, [application] as CFArray, &access)
-        guard accessStatus == errSecSuccess, let access else { return accessStatus }
+        let (accessStatus, candidate) = Self.makeAccess()
+        guard accessStatus == errSecSuccess, let access = candidate else { return accessStatus }
         attributes[kSecAttrAccess as String] = access
         return SecItemAdd(attributes as CFDictionary, nil)
         #else
@@ -80,6 +76,12 @@ public struct SystemPairingKeychain: PairingKeychain {
     }
 
     public func copyItemData(_ query: [String: Any]) -> (status: OSStatus, data: Data?) {
+        #if os(macOS)
+        let (validation, itemRef) = Self.validatedItem(query)
+        guard validation == errSecSuccess, let itemRef else { return (validation, nil) }
+        // Read the validated object, never repeat a mutable service/account lookup.
+        let query: [String: Any] = [kSecValueRef as String: itemRef, kSecReturnData as String: true]
+        #endif
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         guard status == errSecSuccess else { return (status, nil) }
@@ -89,8 +91,90 @@ public struct SystemPairingKeychain: PairingKeychain {
     }
 
     public func updateItem(_ query: [String: Any], attributes: [String: Any]) -> OSStatus {
-        SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        #if os(macOS)
+        let (status, item) = Self.validatedItem(query)
+        guard status == errSecSuccess, let item else { return status }
+        // Its complete policy has already matched the policy we create. Preserve
+        // that verified ACL; resetting an identical ChangeACL policy can prompt.
+        return SecItemUpdate([kSecValueRef as String: item] as CFDictionary, attributes as CFDictionary)
+        #else
+        return SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        #endif
     }
+
+    #if os(macOS)
+    static func makeAccess() -> (OSStatus, SecAccess?) {
+        var application: SecTrustedApplication?
+        let status = SecTrustedApplicationCreateFromPath(nil, &application)
+        guard status == errSecSuccess, let application else { return (status, nil) }
+        var access: SecAccess?
+        let result = SecAccessCreate("VisionDesk remembered pairing" as CFString, [application] as CFArray, &access)
+        return (result, access)
+    }
+
+    /// Labels are attacker-controlled. Compare the complete classic policy, including
+    /// ChangeACL/owner entries and every operation, before requesting secret data.
+    private static func validatedItem(_ query: [String: Any]) -> (OSStatus, SecKeychainItem?) {
+        var lookup = query
+        lookup.removeValue(forKey: kSecReturnData as String)
+        lookup[kSecReturnRef as String] = true
+        lookup[kSecMatchLimit as String] = kSecMatchLimitOne
+        var value: CFTypeRef?
+        let status = SecItemCopyMatching(lookup as CFDictionary, &value)
+        guard status == errSecSuccess else { return (status, nil) }
+        guard let value, CFGetTypeID(value) == SecKeychainItemGetTypeID() else { return (errSecInvalidItemRef, nil) }
+        let item = unsafeBitCast(value, to: SecKeychainItem.self)
+        var actual: SecAccess?
+        let accessStatus = SecKeychainItemCopyAccess(item, &actual)
+        let (expectedStatus, expected) = makeAccess()
+        guard accessStatus == errSecSuccess, expectedStatus == errSecSuccess,
+              let actual, let expected, hasSamePolicy(actual, as: expected) else { return (errSecAuthFailed, nil) }
+        return (errSecSuccess, item)
+    }
+
+    static func hasSamePolicy(_ actual: SecAccess, as expected: SecAccess) -> Bool {
+        guard let actualPolicy = policy(actual), let expectedPolicy = policy(expected) else { return false }
+        return actualPolicy == expectedPolicy
+    }
+
+    private struct Policy: Equatable {
+        let user: uid_t
+        let group: gid_t
+        let owner: SecAccessOwnerType
+        let entries: [String]
+    }
+
+    private static func policy(_ access: SecAccess) -> Policy? {
+        var user: uid_t = 0
+        var group: gid_t = 0
+        var owner: SecAccessOwnerType = 0
+        var list: CFArray?
+        guard SecAccessCopyOwnerAndACL(access, &user, &group, &owner, nil) == errSecSuccess,
+              SecAccessCopyACLList(access, &list) == errSecSuccess,
+              let entries = list as? [SecACL] else { return nil }
+        var result: [String] = []
+        for entry in entries {
+            var applications: CFArray?
+            var description: CFString?
+            var prompt: SecKeychainPromptSelector = []
+            guard SecACLCopyContents(entry, &applications, &description, &prompt) == errSecSuccess else { return nil }
+            var identities: [String] = []
+            if let applications {
+                guard let trusted = applications as? [SecTrustedApplication] else { return nil }
+                for application in trusted {
+                    var data: CFData?
+                    guard SecTrustedApplicationCopyData(application, &data) == errSecSuccess, let data else { return nil }
+                    identities.append((data as Data).base64EncodedString())
+                }
+            } else {
+                identities.append("ANY_APPLICATION")
+            }
+            let authorizations = (SecACLCopyAuthorizations(entry) as NSArray).map { String(describing: $0) }.sorted()
+            result.append("\(authorizations)|\(identities.sorted())|\(prompt.rawValue)")
+        }
+        return Policy(user: user, group: group, owner: owner, entries: result.sorted())
+    }
+    #endif
 
     public func deleteItem(_ query: [String: Any]) -> OSStatus {
         SecItemDelete(query as CFDictionary)

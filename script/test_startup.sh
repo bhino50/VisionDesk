@@ -111,9 +111,7 @@ EXTRACT_PY
 }
 
 REPORT_VALIDATOR="$FIXTURES/report_validator.py"
-ADDRESS_VALIDATOR="$FIXTURES/address_validator.py"
 extract_embedded_python REPORT_PY "$REPORT_VALIDATOR"
-extract_embedded_python ADDRESS_PY "$ADDRESS_VALIDATOR"
 
 check_report() {
     local name="$1" body="$2" mode="$3" expected="$4"
@@ -143,26 +141,8 @@ check_report "missing PID" \
     '{"reportID":"launch-id","bundleID":"com.example.VisionDeskMac","windows":["main"]}' --verify 1
 check_report "boolean PID" "$(report_body launch-id '["main"]' true)" --verify 1
 check_report "negative PID" "$(report_body launch-id '["main"]' -1)" --verify 1
-check_report "remote sharing failed" "$(report_body launch-id '["main"]' "$$" ',"sharing":false')" --remote-host 1
-check_report "remote sharing ready" "$(report_body launch-id '["main"]' "$$" ',"sharing":true')" --remote-host 0
 check_report "verify ignores sharing state" \
     "$(report_body launch-id '["main"]' "$$" ',"sharing":false')" --verify 0
-
-check_address() {
-    local name="$1" address="$2" expected="$3"
-    capture python3 "$ADDRESS_VALIDATOR" "$address"
-    if { ((expected == 0)) && ((LAST_STATUS == 0)); } ||
-        { ((expected != 0)) && ((LAST_STATUS != 0)); }; then
-        report "remote address: $name" 0
-    else
-        report "remote address: $name" 1
-    fi
-}
-
-check_address "Tailscale CGNAT accepted" 100.70.0.1 0
-check_address "private LAN rejected" 192.168.1.5 1
-check_address "above the /10 rejected" 100.128.0.1 1
-check_address "not an address rejected" not-an-ip 1
 
 # ---------------------------------------------------------------------------
 # Developer-directory preflight
@@ -702,10 +682,8 @@ check_preflight "unsupported visionOS mode" "usage:" \
     "$ROOT_DIR/script/build_vision.sh" not-a-mode
 check_preflight "unsupported companion mode" "usage:" \
     "$ROOT_DIR/script/build_and_run.sh" --not-a-mode
-check_preflight "remote host without an address" "VISION_DESK_REMOTE_ADDRESS" \
+check_preflight "remote launcher still requires signing" "stable signing identity" \
     "$ROOT_DIR/script/build_and_run.sh" --remote-host
-check_preflight "remote host with a private LAN address" "Tailscale IPv4 address" \
-    env VISION_DESK_REMOTE_ADDRESS=192.168.1.5 "$ROOT_DIR/script/build_and_run.sh" --remote-host
 check_preflight "blank signing identity file" "stable signing identity" \
     "$ROOT_DIR/script/build_and_run.sh" --verify
 check_preflight "invalid companion bundle identifier" "reverse-DNS bundle identifier" \
@@ -770,7 +748,7 @@ accepted = case_patterns(text[first : text.index("esac", first)])
 second = text.index('case "$MODE" in', text.index("REPORT_MODE=0"))
 reporting = case_patterns(text[second : text.index("esac", second)])
 
-expected = {"--verify", "--capture-check", "--input-check", "--remote-host"}
+expected = {"--verify", "--capture-check", "--input-check"}
 if reporting != expected:
     raise SystemExit(f"reporting modes drifted: {sorted(reporting)} != {sorted(expected)}")
 if not reporting <= accepted:
@@ -789,6 +767,8 @@ if len(plain) != 1:
     raise SystemExit(f"expected exactly one non-reporting launch, found {len(plain)}")
 if launch.count("if ((REPORT_MODE)); then") != 2:
     raise SystemExit("a reporting launch is no longer paired with report validation")
+if "--enable-remote-host" in text:
+    raise SystemExit("launcher must not silently configure remote access")
 PARITY_PY
 report "report modes dispatch and validate consistently: build_and_run.sh" "$LAST_STATUS"
 

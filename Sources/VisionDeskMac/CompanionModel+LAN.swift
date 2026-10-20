@@ -20,10 +20,16 @@ extension CompanionModel {
         saveLANConfiguration(configuration)
     }
 
-    /// LAN pauses survive a disconnect, capture rebuild and application restart. A grant for
+    /// Control pauses survive a disconnect, capture rebuild and application restart. A grant for
     /// one connection does not become standing consent unless the owner sets the toggle.
-    func persistLANPauses() {
-        guard !remoteConfiguration.enabled else { return }
+    func persistControlPauses() {
+        if remoteConfiguration.enabled {
+            var configuration = remoteConfiguration
+            configuration.ownerPaused = ownerPausedControl
+            configuration.peerPaused = peerPausedControl
+            adoptRemoteConfiguration(configuration)
+            return
+        }
         var configuration = lanConfiguration
         configuration.ownerPaused = ownerPausedControl
         configuration.peerPaused = peerPausedControl
@@ -38,7 +44,7 @@ extension CompanionModel {
         var configuration = lanConfiguration
         configuration.allowControl = allowed
         adoptLANConfiguration(configuration)
-        if allowed { grantStandingControl(); persistLANPauses() }
+        if allowed { grantStandingControl() }
         else { withdrawStandingControl() }
     }
 

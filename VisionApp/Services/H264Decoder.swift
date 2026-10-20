@@ -26,6 +26,12 @@ final class H264Decoder: @unchecked Sendable {
     private var sps = Data()
     private var pps = Data()
     private var isInvalidated = false
+    private var geometry: H264Geometry?
+    private let beforeSessionCreation: () -> Void
+
+    init(beforeSessionCreation: @escaping () -> Void = {}) {
+        self.beforeSessionCreation = beforeSessionCreation
+    }
 
     deinit { invalidate() }
 
@@ -40,14 +46,18 @@ final class H264Decoder: @unchecked Sendable {
         guard !isInvalidated else { return nil }
 
         if frame.isKeyframe {
-            guard let sps = frame.sps, let pps = frame.pps, prepareLocked(sps: sps, pps: pps) else {
+            guard let sps = frame.sps, let pps = frame.pps,
+                  let geometry = H264Geometry(sps: sps),
+                  geometry.visibleWidth == frame.width, geometry.visibleHeight == frame.height,
+                  prepareLocked(sps: sps, pps: pps, geometry: geometry) else {
                 tearDownLocked()
                 return nil
             }
         }
         // A predicted frame that arrives before any usable keyframe has nothing to predict
         // from. There is no fallback that could make it an image.
-        guard let session, let formatDescription,
+        guard let geometry, geometry.visibleWidth == frame.width, geometry.visibleHeight == frame.height,
+              let session, let formatDescription,
               let sampleBuffer = Self.makeSampleBuffer(payload: frame.payload, format: formatDescription) else { return nil }
 
         let box = ImageBox()
@@ -89,11 +99,17 @@ final class H264Decoder: @unchecked Sendable {
         lock.unlock()
     }
 
-    private func prepareLocked(sps: Data, pps: Data) -> Bool {
+    private func prepareLocked(sps: Data, pps: Data, geometry: H264Geometry) -> Bool {
         if session != nil, self.sps == sps, self.pps == pps { return true }
         tearDownLocked()
-        guard let format = Self.makeFormatDescription(sps: sps, pps: pps),
-              let created = Self.makeSession(format: format) else { return false }
+        guard let format = Self.makeFormatDescription(sps: sps, pps: pps) else { return false }
+        let dimensions = CMVideoFormatDescriptionGetDimensions(format)
+        let nativeSize = (Int(dimensions.width), Int(dimensions.height))
+        guard nativeSize == (geometry.codedWidth, geometry.codedHeight)
+                || nativeSize == (geometry.visibleWidth, geometry.visibleHeight) else { return false }
+        beforeSessionCreation()
+        guard let created = Self.makeSession(format: format) else { return false }
+        self.geometry = geometry
         session = created
         formatDescription = format
         self.sps = sps
@@ -105,6 +121,7 @@ final class H264Decoder: @unchecked Sendable {
         if let session { VTDecompressionSessionInvalidate(session) }
         session = nil
         formatDescription = nil
+        geometry = nil
         sps = Data()
         pps = Data()
     }

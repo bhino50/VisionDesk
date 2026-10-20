@@ -3,19 +3,120 @@ import Security
 @testable import DeskTransport
 import XCTest
 
-/// These tests never touch a real Keychain. Every case runs against an injected
-/// in-memory implementation, so running the suite cannot add, change, or remove
-/// an item in anyone's login keychain.
-///
-/// The one path not covered here is Security.framework itself:
-/// `SystemPairingKeychain` needs a signed, entitled build on real hardware to
-/// reach the data protection keychain, which is a manual gate rather than
-/// something this suite can assert. What *is* covered is every decision the store
-/// makes around it — which attributes it writes, which statuses mean "never
-/// saved" versus "macOS refused", and what it refuses to send at all.
+/// Most storage cases use an in-memory backend. Classic policy coverage uses
+/// Security.framework objects and a generated, disposable keychain fixture,
+/// never any personal credential or default-keychain changes.
 final class PairingKeyStoreTests: XCTestCase {
     private let service = "org.visiondesk.VisionDesk.pairing.tests"
     private let account = "Upstairs Mac"
+
+    #if os(macOS)
+    func testPersistedClassicKeychainAcceptsOwnPolicyAndRejectsForeignACL() throws {
+        var interaction = DarwinBoolean(false)
+        XCTAssertEqual(SecKeychainGetUserInteractionAllowed(&interaction), errSecSuccess)
+        XCTAssertEqual(SecKeychainSetUserInteractionAllowed(false), errSecSuccess)
+        defer { XCTAssertEqual(SecKeychainSetUserInteractionAllowed(interaction.boolValue), errSecSuccess) }
+        var originalDefault: SecKeychain?
+        XCTAssertEqual(SecKeychainCopyDefault(&originalDefault), errSecSuccess)
+        var originalList: CFArray?
+        XCTAssertEqual(SecKeychainCopySearchList(&originalList), errSecSuccess)
+        let original = try XCTUnwrap(originalList) as NSArray
+        let root = ProcessInfo.processInfo.environment["VISIONDESK_TEST_ARTIFACTS"].map(URL.init(fileURLWithPath:))
+            ?? FileManager.default.temporaryDirectory
+        let directory = root.appendingPathComponent("pairing-fixture-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let path = directory.appendingPathComponent("isolated.keychain-db").path
+        var fixture: SecKeychain?
+        let password = UUID().uuidString
+        let creation = password.withCString { SecKeychainCreate(path, UInt32(password.utf8.count), $0, false, nil, &fixture) }
+        XCTAssertEqual(creation, errSecSuccess)
+        let keychain = try XCTUnwrap(fixture)
+        defer {
+            XCTAssertEqual(SecKeychainDelete(keychain), errSecSuccess)
+            var remaining: CFArray?
+            XCTAssertEqual(SecKeychainCopySearchList(&remaining), errSecSuccess)
+            let preserved = remaining as NSArray? ?? []
+            XCTAssertTrue(original.allSatisfy { preserved.contains($0) }, "Original search-list entries must be preserved.")
+            XCTAssertFalse(preserved.contains(keychain), "The disposable fixture must leave the search list.")
+            var currentDefault: SecKeychain?
+            XCTAssertEqual(SecKeychainCopyDefault(&currentDefault), errSecSuccess)
+            if let originalDefault, let currentDefault {
+                XCTAssertTrue(CFEqual(originalDefault, currentDefault), "The default keychain must stay unchanged.")
+            } else {
+                XCTFail("Could not verify the unchanged default keychain.")
+            }
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let backend = IsolatedSystemKeychain(keychain: keychain)
+        let store = PairingKeyStore(service: service, keychain: backend)
+        let first = PairingKey.generate()
+        let second = PairingKey.generate()
+        try store.save(first, account: account)
+        XCTAssertTrue(try XCTUnwrap(store.load(account: account)).displayValue == first.displayValue)
+        try store.save(second, account: account)
+        XCTAssertTrue(try XCTUnwrap(store.load(account: account)).displayValue == second.displayValue)
+
+        var selfApp: SecTrustedApplication?
+        var foreignApp: SecTrustedApplication?
+        XCTAssertEqual(SecTrustedApplicationCreateFromPath(nil, &selfApp), errSecSuccess)
+        XCTAssertEqual(SecTrustedApplicationCreateFromPath("/bin/sh", &foreignApp), errSecSuccess)
+        var planted: SecAccess?
+        XCTAssertEqual(SecAccessCreate("VisionDesk remembered pairing" as CFString,
+                                       [try XCTUnwrap(selfApp), try XCTUnwrap(foreignApp)] as CFArray, &planted), errSecSuccess)
+        let foreignAccount = "Foreign planted fixture"
+        let plantedQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: foreignAccount,
+            kSecUseKeychain as String: keychain,
+            kSecUseDataProtectionKeychain as String: false,
+            kSecAttrAccess as String: try XCTUnwrap(planted),
+            kSecValueData as String: second.keychainSecret
+        ]
+        XCTAssertEqual(SecItemAdd(plantedQuery as CFDictionary, nil), errSecSuccess)
+        XCTAssertThrowsError(try store.load(account: foreignAccount))
+        XCTAssertThrowsError(try store.save(.generate(), account: foreignAccount))
+        var dataQuery = backend.scope([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: foreignAccount,
+            kSecReturnData as String: true
+        ])
+        dataQuery[kSecMatchLimit as String] = kSecMatchLimitOne
+        var oldValue: CFTypeRef?
+        XCTAssertEqual(SecItemCopyMatching(dataQuery as CFDictionary, &oldValue), errSecSuccess)
+        XCTAssertTrue((oldValue as? Data) == second.keychainSecret)
+
+    }
+
+    func testClassicPolicyIncludesOwnerAndEveryOperationWithoutTouchingKeychains() throws {
+        let (status, expectedAccess) = SystemPairingKeychain.makeAccess()
+        XCTAssertEqual(status, errSecSuccess)
+        let expected = try XCTUnwrap(expectedAccess)
+        let (_, secondAccess) = SystemPairingKeychain.makeAccess()
+        XCTAssertTrue(SystemPairingKeychain.hasSamePolicy(try XCTUnwrap(secondAccess), as: expected))
+        var selfApp: SecTrustedApplication?
+        var foreignApp: SecTrustedApplication?
+        XCTAssertEqual(SecTrustedApplicationCreateFromPath(nil, &selfApp), errSecSuccess)
+        XCTAssertEqual(SecTrustedApplicationCreateFromPath("/bin/sh", &foreignApp), errSecSuccess)
+        var planted: SecAccess?
+        XCTAssertEqual(SecAccessCreate("VisionDesk remembered pairing" as CFString,
+                                       [try XCTUnwrap(selfApp), try XCTUnwrap(foreignApp)] as CFArray,
+                                       &planted), errSecSuccess)
+        XCTAssertFalse(SystemPairingKeychain.hasSamePolicy(try XCTUnwrap(planted), as: expected))
+        // Only tamper with the ownership/ChangeACL entry. A decrypt-only audit
+        // would miss this policy and permit later ACL changes by the foreign app.
+        let (_, modifiedAccess) = SystemPairingKeychain.makeAccess()
+        let modified = try XCTUnwrap(modifiedAccess)
+        let ownerACLs = SecAccessCopyMatchingACLList(modified, kSecACLAuthorizationChangeACL) as! [SecACL]
+        XCTAssertFalse(ownerACLs.isEmpty)
+        for acl in ownerACLs {
+            XCTAssertEqual(SecACLSetContents(acl, [try XCTUnwrap(selfApp), try XCTUnwrap(foreignApp)] as CFArray,
+                                             "VisionDesk remembered pairing" as CFString, []), errSecSuccess)
+        }
+        XCTAssertFalse(SystemPairingKeychain.hasSamePolicy(modified, as: expected))
+    }
+    #endif
 
     func testDefaultServiceIsThePinnedIdentifier() {
         XCTAssertEqual(PairingKeyStore.defaultService, "org.visiondesk.VisionDesk.pairing")
@@ -235,3 +336,29 @@ private final class FakeKeychain: PairingKeychain, @unchecked Sendable {
         return Entry(service: service, account: account)
     }
 }
+
+#if os(macOS)
+/// All real backend operations are explicitly restricted to the disposable file.
+private struct IsolatedSystemKeychain: PairingKeychain, @unchecked Sendable {
+    let keychain: SecKeychain
+    private let system = SystemPairingKeychain()
+    func scope(_ query: [String: Any]) -> [String: Any] {
+        var query = query
+        query[kSecMatchSearchList as String] = [keychain]
+        query[kSecUseDataProtectionKeychain as String] = false
+        return query
+    }
+    func addItem(_ attributes: [String: Any]) -> OSStatus {
+        var attributes = attributes
+        attributes[kSecUseKeychain as String] = keychain
+        return system.addItem(attributes)
+    }
+    func copyItemData(_ query: [String: Any]) -> (status: OSStatus, data: Data?) {
+        system.copyItemData(scope(query))
+    }
+    func updateItem(_ query: [String: Any], attributes: [String: Any]) -> OSStatus {
+        system.updateItem(scope(query), attributes: attributes)
+    }
+    func deleteItem(_ query: [String: Any]) -> OSStatus { system.deleteItem(scope(query)) }
+}
+#endif

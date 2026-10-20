@@ -14,6 +14,39 @@ import XCTest
 /// only way in, which the wrong-key case below asserts directly.
 @MainActor
 final class DeskReconnectTests: XCTestCase {
+    func testFullStalledHandshakeSlotsRotateAndAllowRememberedReconnect() async throws {
+        let key = PairingKey.generate()
+        let server = DeskServer(handshakeTimeout: 8)
+        var hosts: [DeskConnection] = []
+        server.onConnection = { hosts.append($0) }
+        try server.startLoopback(key: key, allowReconnect: true)
+        defer { server.stop() }
+        let endpoint = try await endpoint(for: server)
+        // Loopback bypasses per-source admission, reproducing globally occupied
+        // slots without adding IP aliases or changing this Mac's networking.
+        let stalled = (0..<4).map { _ in NWConnection(to: endpoint, using: .tcp) }
+        defer { stalled.forEach { $0.cancel() } }
+        stalled.forEach { $0.start(queue: .main) }
+        try await waitUntil { server.pendingHandshakeCount == 4 }
+        try await Task.sleep(nanoseconds: 1_100_000_000)
+        let valid = DeskConnection(endpoint: endpoint, key: key)
+        defer { valid.cancel() }
+        valid.start()
+        try await waitUntil { hosts.count == 1 }
+        XCTAssertEqual(server.pendingHandshakeCount, 0)
+        // Arriving traffic cannot evict the authenticated session.
+        let interloper = NWConnection(to: endpoint, using: .tcp)
+        interloper.start(queue: .main)
+        defer { interloper.cancel() }
+        XCTAssertTrue(valid.send(DeskMessage(kind: "heartbeat")))
+        valid.cancel()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let reconnect = DeskConnection(endpoint: endpoint, key: key)
+        defer { reconnect.cancel() }
+        reconnect.start()
+        try await waitUntil { hosts.count == 2 }
+    }
+
     func testClientSurvivesSilentMacWhileItKeepsSendingHeartbeats() async throws {
         let key = PairingKey.generate()
         let server = DeskServer(handshakeTimeout: 1, idleTimeout: 1)

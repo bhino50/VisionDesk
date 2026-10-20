@@ -272,25 +272,30 @@ public final class DeskServer {
 /// remembered headset out indefinitely. Loopback listeners keep accepting any number, which the
 /// diagnostics and the transport tests rely on. Pure, so every rule is checked without a socket.
 struct HandshakeAdmission: Equatable {
-    /// A Tailscale-bound listener serves tailnet peers only.
-    let requiresTailnetPeer: Bool
+    /// Explicit private-address bindings refuse public, loopback and link-local sources.
+    let requiresPrivatePeer: Bool
     /// A source may hold only one unauthenticated slot at a time.
     let limitsPerSource: Bool
 
     init(bindHost: String?, loopbackOnly: Bool) {
-        requiresTailnetPeer = bindHost.flatMap { RemoteMacAddress(host: $0) }?.isTailnetIPv4 == true
+        let boundAddress = bindHost.flatMap { RemoteMacAddress(host: $0) }
+        requiresPrivatePeer = boundAddress?.isPrivateIP == true
         limitsPerSource = !loopbackOnly && !(bindHost.map(Self.isLoopback) ?? false)
     }
 
     /// `peerHost` is the source of the new connection; `pendingHosts` are the sources of the
     /// handshakes already in progress. A source that cannot be named is refused wherever sources count.
     func admits(peerHost: String?, pendingHosts: [String?]) -> Bool {
-        if requiresTailnetPeer {
-            guard let peerHost, RemoteMacAddress(host: peerHost)?.isTailnetIPv4 == true else { return false }
+        if requiresPrivatePeer {
+            guard let peerHost, RemoteMacAddress(host: peerHost)?.isPrivateIP == true else { return false }
         }
         guard limitsPerSource else { return true }
         guard let peerHost else { return false }
-        return !pendingHosts.contains { $0 == peerHost }
+        let canonicalPeer = RemoteMacAddress(host: peerHost)?.host ?? peerHost
+        return !pendingHosts.contains { source in
+            guard let source else { return false }
+            return (RemoteMacAddress(host: source)?.host ?? source) == canonicalPeer
+        }
     }
 
     static func host(of endpoint: NWEndpoint) -> String? {

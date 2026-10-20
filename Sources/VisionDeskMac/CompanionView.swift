@@ -71,6 +71,11 @@ struct CompanionView: View {
                         }
                     }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
                 }
+                ExtraDesktopsPanel(manager: model.virtualDisplays,
+                                   canChange: !model.canStopSharing) {
+                    showDisplays = true
+                    model.refreshInventory()
+                }
                 DisclosureGroup("Displays · \(model.displays.count) shared of \(model.availableDisplays.count) connected", isExpanded: $showDisplays) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text(model.canStopSharing ? "Stop Sharing to change which screens are shared." : "Choose up to four screens. Other displays can stay connected.")
@@ -111,11 +116,62 @@ struct CompanionView: View {
             }.padding(28)
         }
         .frame(minWidth: 640, minHeight: 460)
-        .preferredColorScheme(.dark)
         .confirmationDialog("Reset pairing?", isPresented: $resetPairing) {
             Button("Reset Pairing", role: .destructive) { model.resetLANPairing() }
         } message: {
             Text("Sharing stops and saved headsets must pair again with a new key.")
+        }
+    }
+}
+
+/// Extra desktops use the same display picker and four-stream budget as attached monitors.
+private struct ExtraDesktopsPanel: View {
+    @ObservedObject var manager: VirtualDisplayManager
+    let canChange: Bool
+    let changed: () -> Void
+
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label("Extra desktops", systemImage: "rectangle.on.rectangle")
+                        .font(.headline)
+                    Spacer()
+                    Button("Add Desktop", systemImage: "plus") {
+                        if manager.create() != nil { changed() }
+                    }
+                    .disabled(!canChange || !manager.isSupported
+                              || manager.desktops.count >= VirtualDisplayManager.maximumDesktopCount)
+                }
+                Text("Create up to three additional Mac screens without extra monitors. Choose any four screens below to share with Vision Pro.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !canChange {
+                    Text("Stop Sharing before adding or removing desktops.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                if !manager.isSupported {
+                    Label("Extra desktops are unavailable on this macOS version. Attached displays still work.", systemImage: "info.circle")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                ForEach(manager.desktops) { desktop in
+                    HStack {
+                        Label(desktop.name, systemImage: "display")
+                        Spacer()
+                        Text("1920 × 1080").font(.caption).foregroundStyle(.secondary)
+                        Button("Remove", role: .destructive) {
+                            manager.remove(id: desktop.id)
+                            changed()
+                        }.disabled(!canChange)
+                    }
+                }
+                if let message = manager.errorMessage {
+                    Label(message, systemImage: "exclamationmark.triangle")
+                        .font(.callout).foregroundStyle(.orange)
+                }
+                Text("Extra desktops close when VisionDesk Mac quits. macOS may move their windows to an attached screen.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

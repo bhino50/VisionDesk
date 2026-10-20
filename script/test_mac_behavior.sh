@@ -18,8 +18,9 @@ export DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"
 swift build --product VisionDeskMac
 swift build --product DeskCore
 swift build --product DeskTransport
+swift build --product VirtualDisplayBridge
 BIN_DIR="$(swift build --show-bin-path)"
-for library in libDeskCore.a libDeskTransport.a; do
+for library in libDeskCore.a libDeskTransport.a libVirtualDisplayBridge.a; do
     if [[ ! -f "$BIN_DIR/$library" ]]; then
         echo "Missing $library in $BIN_DIR. Run 'swift build' and retry." >&2
         exit 1
@@ -28,7 +29,16 @@ done
 
 OUT_DIR="$ROOT_DIR/.build/mac-behavior-checks"
 BINARY="$OUT_DIR/MacBehaviorChecks"
-mkdir -p "$OUT_DIR"
+mkdir -p "$OUT_DIR/bridge-module"
+# SwiftPM may use either its native or Xcode build engine. Give the standalone
+# Swift compiler a stable module map instead of assuming an engine-specific path.
+python3 - "$ROOT_DIR" "$OUT_DIR/bridge-module/module.modulemap" <<'MODULE_MAP'
+import json
+from pathlib import Path
+import sys
+header = str(Path(sys.argv[1]) / "Sources/VirtualDisplayBridge/include/VirtualDisplayBridge.h")
+Path(sys.argv[2]).write_text("module VirtualDisplayBridge { header " + json.dumps(header) + " export * }\n")
+MODULE_MAP
 
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
 DEPLOYMENT_TARGET="14.0"
@@ -46,6 +56,7 @@ PRODUCTION_SOURCES=(
     Sources/VisionDeskMac/LANHostSupport.swift
     Sources/VisionDeskMac/DisplayCapture.swift
     Sources/VisionDeskMac/H264Encoder.swift
+    Sources/VisionDeskMac/VirtualDisplayManager.swift
     Sources/VisionDeskMac/DockAppLauncher.swift
     Sources/VisionDeskMac/InputOutput.swift
     VisionApp/Services/DisplayGeometry.swift
@@ -58,7 +69,7 @@ xcrun swiftc \
     -target "$TARGET_TRIPLE" \
     -Onone -g \
     -module-name MacBehaviorChecks \
-    -I "$BIN_DIR" -L "$BIN_DIR" -lDeskCore -lDeskTransport \
+    -I "$BIN_DIR" -I "$OUT_DIR/bridge-module" -I "$ROOT_DIR/Sources/VirtualDisplayBridge/include" -L "$BIN_DIR" -lDeskCore -lDeskTransport -lVirtualDisplayBridge \
     -o "$BINARY" \
     "${PRODUCTION_SOURCES[@]}" \
     "${CHECK_SOURCES[@]}"

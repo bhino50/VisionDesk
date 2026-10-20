@@ -232,9 +232,9 @@ func runHostRecoveryLimitChecks(_ runner: CheckRunner) async {
                                    keepAwake: KeepAwakeRecorder().hold, uptime: { clock.now })
         model.start()
         runner.expectEqual(model.configureRemoteAccess(address: "192.168.1.20", allowControl: false, keepAwake: true), .refused,
-                           "an address outside the permitted remote range is still refused")
+                           "a private address absent from this Mac is still refused")
         let feedback = model.remoteFeedback
-        runner.expect(feedback?.message.hasPrefix("Enter this Mac's Tailscale address") == true,
+        runner.expect(feedback?.message.contains("private VPN addresses") == true && feedback?.message.contains("100.64.0.1") == true && feedback?.fix == nil,
                       "the refusal is actionable, got: \(feedback?.message ?? "nothing")")
         model.receiveSessionNotice(.locked)
         clock.advance(by: HostSessionFlags.noticeGraceSeconds + CompanionModel.selfHealInterval)

@@ -15,14 +15,19 @@ final class PersistentLANListenerTests: XCTestCase {
 
     // MARK: - Admission rules
 
-    func testATailscaleListenerTakesOneHandshakePerTailnetPeerAndNoOneElse() {
+    func testACGNATListenerTakesOneHandshakePerPrivatePeerAndNoPublicSources() {
         let admission = HandshakeAdmission(bindHost: "100.64.0.1", loopbackOnly: false)
-        XCTAssertTrue(admission.requiresTailnetPeer)
+        XCTAssertTrue(admission.requiresPrivatePeer)
         XCTAssertTrue(admission.limitsPerSource)
         XCTAssertTrue(admission.admits(peerHost: "100.101.102.103", pendingHosts: []))
         XCTAssertTrue(admission.admits(peerHost: "100.101.102.104", pendingHosts: ["100.101.102.103", nil]))
         XCTAssertFalse(admission.admits(peerHost: "100.101.102.103", pendingHosts: ["100.101.102.103"]))
-        XCTAssertFalse(admission.admits(peerHost: "192.168.1.30", pendingHosts: []), "Not a tailnet peer")
+        for peer in ["192.168.1.30", "10.24.0.9", "fd12:3456::9"] {
+            XCTAssertTrue(admission.admits(peerHost: peer, pendingHosts: []), "Private ranges may differ across a VPN")
+        }
+        for peer in ["8.8.8.8", "127.0.0.1", "fe80::1"] {
+            XCTAssertFalse(admission.admits(peerHost: peer, pendingHosts: []))
+        }
         XCTAssertFalse(admission.admits(peerHost: nil, pendingHosts: []))
     }
 
@@ -30,7 +35,6 @@ final class PersistentLANListenerTests: XCTestCase {
         for bindHost in [nil, "192.168.1.20"] as [String?] {
             let label = bindHost ?? "advertised"
             let admission = HandshakeAdmission(bindHost: bindHost, loopbackOnly: false)
-            XCTAssertFalse(admission.requiresTailnetPeer, label)
             XCTAssertTrue(admission.limitsPerSource, label)
             XCTAssertTrue(admission.admits(peerHost: "192.168.1.30", pendingHosts: []), label)
             XCTAssertTrue(admission.admits(peerHost: "192.168.1.31", pendingHosts: ["192.168.1.30"]), label)
@@ -40,13 +44,30 @@ final class PersistentLANListenerTests: XCTestCase {
         }
     }
 
+    func testPrivateVPNBindingsAdmitPrivatePeersWithoutOpeningPublicSources() {
+        for host in ["10.24.0.8", "172.20.0.8", "192.168.40.8", "100.64.0.8", "fd12:3456::8"] {
+            let admission = HandshakeAdmission(bindHost: host, loopbackOnly: false)
+            XCTAssertTrue(admission.requiresPrivatePeer)
+            XCTAssertTrue(admission.limitsPerSource)
+            for peer in ["10.24.0.9", "172.20.0.9", "192.168.40.9", "100.64.0.9", "fd12:3456::9"] {
+                XCTAssertTrue(admission.admits(peerHost: peer, pendingHosts: []))
+                XCTAssertFalse(admission.admits(peerHost: peer, pendingHosts: [peer]))
+            }
+            for peer in ["8.8.8.8", "127.0.0.1", "169.254.1.8", "fe80::8", "2001:db8::8", "ff02::8"] {
+                XCTAssertFalse(admission.admits(peerHost: peer, pendingHosts: []))
+            }
+            XCTAssertFalse(admission.admits(peerHost: "fd12:3456::9", pendingHosts: ["FD12:3456:0:0:0:0:0:9"]),
+                           "Equivalent IPv6 source text shares one handshake slot")
+            XCTAssertFalse(admission.admits(peerHost: nil, pendingHosts: []))
+        }
+    }
+
     func testLoopbackListenersKeepAdmittingEveryHandshake() {
         let loopback = [HandshakeAdmission(bindHost: nil, loopbackOnly: true)]
             + ["127.0.0.1", "127.0.0.2", "::1", "[::1]", "localhost"].map {
                 HandshakeAdmission(bindHost: $0, loopbackOnly: false)
             }
         for admission in loopback {
-            XCTAssertFalse(admission.requiresTailnetPeer)
             XCTAssertFalse(admission.limitsPerSource)
             XCTAssertTrue(admission.admits(peerHost: "127.0.0.1", pendingHosts: ["127.0.0.1", "127.0.0.1"]))
             XCTAssertTrue(admission.admits(peerHost: nil, pendingHosts: []))

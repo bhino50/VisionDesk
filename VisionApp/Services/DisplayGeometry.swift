@@ -2,6 +2,26 @@ import CoreGraphics
 
 /// Screen coordinates are relative to the visible image, never the letterbox.
 enum DisplayGeometry {
+    struct WindowSizing: Equatable {
+        let preferred: CGSize
+        let minimum: CGSize
+    }
+
+    /// Keep the desktop's aspect without stretching or cropping. Chrome lives in ornaments,
+    /// so these dimensions describe the picture alone, including portrait and ultrawide Macs.
+    static func windowSizing(image: CGSize) -> WindowSizing? {
+        guard image.width.isFinite, image.height.isFinite,
+              image.width > 0, image.height > 0 else { return nil }
+        let scale = min(1120 / image.width, 1000 / image.height)
+        let preferred = CGSize(width: image.width * scale, height: image.height * scale)
+        guard preferred.width.isFinite, preferred.height.isFinite,
+              preferred.width > 0, preferred.height > 0 else { return nil }
+        let minimumScale = min(1, max(320 / preferred.width, 180 / preferred.height))
+        return WindowSizing(preferred: preferred,
+                            minimum: CGSize(width: preferred.width * minimumScale,
+                                            height: preferred.height * minimumScale))
+    }
+
     static func imageRect(in container: CGSize, image: CGSize) -> CGRect? {
         guard container.width.isFinite, container.height.isFinite,
               image.width.isFinite, image.height.isFinite,

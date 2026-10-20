@@ -6,6 +6,7 @@ import DeskTransport
 
 @MainActor
 final class CompanionModel: ObservableObject {
+    let virtualDisplays = VirtualDisplayManager()
     @Published var displays: [DisplayInfo] = []
     @Published private(set) var availableDisplays: [DisplayInfo] = []
     @Published var selectedDisplayIDs: Set<UInt32>?
@@ -168,7 +169,7 @@ final class CompanionModel: ObservableObject {
          saveLANKey: @escaping (PairingKey) throws -> Void = LANHostKeychain.save,
          saveLANConfiguration: @escaping (LANHostConfiguration) -> Void = { $0.save() },
          remoteConfiguration: RemoteHostConfiguration = .disabled,
-         localAddresses: @escaping () -> [String] = LocalNetworkAddresses.ipv4,
+         localAddresses: @escaping () -> [String] = LocalNetworkAddresses.all,
          loadRemoteKey: @escaping () throws -> PairingKey? = RemoteHostKeychain.load,
          saveRemoteKey: @escaping (PairingKey) throws -> Void = RemoteHostKeychain.save,
          deleteRemoteKey: @escaping () throws -> Void = RemoteHostKeychain.delete,

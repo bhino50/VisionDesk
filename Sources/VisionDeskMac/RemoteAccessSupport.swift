@@ -5,24 +5,37 @@ import Foundation
 
 // MARK: - This Mac's addresses
 
-/// The IPv4 addresses on this Mac's network interfaces that are up right now.
+/// IP addresses on this Mac's network interfaces that are up right now.
 ///
 /// `getifaddrs` reads the interface list from the kernel and sends nothing on the network, so a
 /// host can ask before every start. Tailscale's address is listed only while Tailscale has this
 /// Mac connected, and that is also the only time the listener can bind it.
 enum LocalNetworkAddresses {
-    static func ipv4() -> [String] {
+    static func ipv4() -> [String] { addresses(families: [AF_INET]) }
+    /// Includes IPv6 for private VPN interfaces; enumeration is local and performs no DNS.
+    static func all() -> [String] { addresses(families: [AF_INET, AF_INET6]) }
+
+    private static func addresses(families: Set<Int32>) -> [String] {
         var list: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&list) == 0, let first = list else { return [] }
         defer { freeifaddrs(list) }
         var addresses: [String] = []
         for entry in sequence(first: first, next: { $0.pointee.ifa_next }) {
             guard Int32(entry.pointee.ifa_flags) & IFF_UP != 0, let socketAddress = entry.pointee.ifa_addr,
-                  socketAddress.pointee.sa_family == sa_family_t(AF_INET) else { continue }
-            var address = socketAddress.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
-            var text = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-            let written = text.withUnsafeMutableBufferPointer { buffer in
-                inet_ntop(AF_INET, &address, buffer.baseAddress, socklen_t(buffer.count)).map { String(cString: $0) }
+                  families.contains(Int32(socketAddress.pointee.sa_family)) else { continue }
+            let family = Int32(socketAddress.pointee.sa_family)
+            var text = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+            let written: String?
+            if family == AF_INET {
+                var address = socketAddress.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
+                written = text.withUnsafeMutableBufferPointer { buffer in
+                    inet_ntop(AF_INET, &address, buffer.baseAddress, socklen_t(buffer.count)).map { String(cString: $0) }
+                }
+            } else {
+                var address = socketAddress.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { $0.pointee.sin6_addr }
+                written = text.withUnsafeMutableBufferPointer { buffer in
+                    inet_ntop(AF_INET6, &address, buffer.baseAddress, socklen_t(buffer.count)).map { String(cString: $0) }
+                }
             }
             if let written { addresses.append(written) }
         }
@@ -96,37 +109,66 @@ enum RemoteAccessChange: Equatable {
 /// The checks a requested remote address must pass before anything is saved or started, and what
 /// the owner is told when it does not.
 enum RemoteAccessReview {
-    /// A Tailscale address on VisionDesk's port, written any way `RemoteMacAddress` accepts.
+    /// A private IP literal on VisionDesk's fixed port. DNS is deliberately not resolved:
+    /// the listener must bind an exact address owned by an active local interface.
+    static func isPrivateHost(_ host: String) -> Bool {
+        RemoteMacAddress(host: host)?.isPrivateIP == true
+    }
+
+    static func isOnThisMac(_ host: String, localAddresses: [String]) -> Bool {
+        guard let requested = RemoteMacAddress(host: host), isPrivateHost(requested.host) else { return false }
+        return localAddresses.contains { RemoteMacAddress(host: $0)?.host == requested.host }
+    }
+
+    static func privateAddresses(_ addresses: [String]) -> [String] {
+        Set(addresses.compactMap { RemoteMacAddress(host: $0) }.filter { isPrivateHost($0.host) }.map(\.host)).sorted()
+    }
+
     static func endpoint(from text: String) -> RemoteMacAddress? {
-        guard let endpoint = RemoteMacAddress(string: text), endpoint.isTailnetIPv4,
+        guard let endpoint = RemoteMacAddress(string: text), isPrivateHost(endpoint.host),
               endpoint.port == RemoteMacAddress.defaultPort else { return nil }
         return endpoint
     }
 
-    /// The address could not be read as a Tailscale address.
+    /// The address could not be read as an allowed private IP endpoint.
     static func unreadable(localAddresses: [String]) -> RemoteFeedback {
         if let own = onlyTailnetAddress(localAddresses) {
             return .problem("Enter this Mac's Tailscale address: \(own).", fix: .useAddress(own))
         }
-        return .problem("Enter this Mac's Tailscale address. It starts with 100 and is shown in the Tailscale menu.")
+        if let own = suggestedAddress(localAddresses) {
+            return .problem("Enter this Mac's private VPN IP address: \(own).", fix: .useAddress(own))
+        }
+        return .problem("Enter this Mac's private VPN IP address. Use an IPv4 address or an IPv6 address in brackets. Connect both devices to the same VPN first.")
     }
 
     /// The address is well formed but this Mac does not have it.
     static func notOnThisMac(_ host: String, localAddresses: [String]) -> RemoteFeedback {
-        let own = LocalNetworkAddresses.tailnet(localAddresses)
+        let tailnet = LocalNetworkAddresses.tailnet(localAddresses)
+        let own = RemoteMacAddress(host: host)?.isTailnetIPv4 == true && !tailnet.isEmpty
+            ? tailnet : privateAddresses(localAddresses)
+        let networkName = RemoteMacAddress(host: host)?.isTailnetIPv4 == true ? "Tailscale" : "private VPN"
         switch own.count {
         case 0:
-            return .problem("\(host) isn't on this Mac right now. Make sure Tailscale is connected on this Mac, then try again.")
+            return .problem("\(host) isn't on this Mac right now. Make sure \(networkName) is connected on this Mac, then try again.")
         case 1:
-            return .problem("\(host) isn't this Mac's Tailscale address. This Mac's is \(own[0]).", fix: .useAddress(own[0]))
+            return .problem("\(host) isn't this Mac's \(networkName) address. This Mac's is \(own[0]).", fix: .useAddress(inputAddress(own[0])))
         default:
-            return .problem("\(host) isn't one of this Mac's Tailscale addresses: \(own.joined(separator: ", ")).")
+            return .problem("\(host) isn't one of this Mac's \(networkName) addresses: \(own.joined(separator: ", ")).")
         }
     }
 
     /// Why an unattended start is waiting. `RemoteRecoveryBackoff.status` adds when it retries.
     static func waitingForTailscale(_ host: String) -> String {
-        "Waiting for Tailscale to connect this Mac at \(host)"
+        let network = RemoteMacAddress(host: host)?.isTailnetIPv4 == true ? "Tailscale" : "the private VPN"
+        return "Waiting for \(network) to connect this Mac at \(host)"
+    }
+
+    static func inputAddress(_ host: String) -> String { host.contains(":") ? "[\(host)]" : host }
+
+    static func suggestedAddress(_ addresses: [String]) -> String? {
+        if let tailnet = onlyTailnetAddress(addresses) { return tailnet }
+        let own = privateAddresses(addresses)
+        return own.count == 1 ? inputAddress(own[0]) : nil
     }
 
     static func onlyTailnetAddress(_ localAddresses: [String]) -> String? {

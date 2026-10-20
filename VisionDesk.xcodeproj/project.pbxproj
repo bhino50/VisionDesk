@@ -247,9 +247,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>7</string>
+				<string>9</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.4.2</string>
+				<string>0.5.1</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -312,9 +312,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>7</string>
+				<string>9</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.4.2</string>
+				<string>0.5.1</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -594,9 +594,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>7</string>
+				<string>9</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.4.2</string>
+				<string>0.5.1</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -659,9 +659,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>7</string>
+				<string>9</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.4.2</string>
+				<string>0.5.1</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -871,6 +871,24 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>EADFE23D4C310C8EC7F4900B</string>
+		</dict>
+		<key>C8C886726B0DC0A3735BC27C</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>VisionApp/Services/DisplayWindowGeometry.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>3D5E6F904CD1606D327190C2</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>C8C886726B0DC0A3735BC27C</string>
 		</dict>
 		<key>B77EFB908D2DCAEF310D3527</key>
 		<dict>
@@ -1158,6 +1176,7 @@
 				<string>09309536036EC5F7B6A7CA09</string>
 				<string>F38F6A7FED13DEFF5E9D1423</string>
 				<string>EADFE23D4C310C8EC7F4900B</string>
+				<string>C8C886726B0DC0A3735BC27C</string>
 				<string>B77EFB908D2DCAEF310D3527</string>
 				<string>9AE5002CC182639FCE4C144F</string>
 				<string>3D19CA0981FCEF169D41B10B</string>
@@ -1194,6 +1213,7 @@
 				<string>E804DB0263787ACD48E314CE</string>
 				<string>FC6BCDDFD3523EE454E287D5</string>
 				<string>3FA2CCD5443CAF8717B18A79</string>
+				<string>3D5E6F904CD1606D327190C2</string>
 				<string>C54D69FA56C1E753C81F5EBE</string>
 				<string>AB841991A5EBD2FBC7574706</string>
 				<string>39868E720D6DF0CF8760DAAB</string>
@@ -1395,9 +1415,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>7</string>
+				<string>9</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.4.2</string>
+				<string>0.5.1</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -1457,9 +1477,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>7</string>
+				<string>9</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.4.2</string>
+				<string>0.5.1</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -1626,6 +1646,24 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>85ADEA6299417427466F5BCD</string>
+		</dict>
+		<key>4FB8CCED094F414F310679AA</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>VisionTests/DisplayWindowGeometryTests.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>C5C069EEF8C454341D375312</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>4FB8CCED094F414F310679AA</string>
 		</dict>
 		<key>B96E1119405C21A8E305BE7D</key>
 		<dict>
@@ -2018,6 +2056,7 @@
 				<string>6E1392A5A7CB14EB17E9FE8E</string>
 				<string>E960F60B3C3C41ABD9391058</string>
 				<string>85ADEA6299417427466F5BCD</string>
+				<string>4FB8CCED094F414F310679AA</string>
 				<string>B96E1119405C21A8E305BE7D</string>
 				<string>D54CD5AA46DDA81135034593</string>
 				<string>761445D4316C7E46B108CBB8</string>
@@ -2056,6 +2095,7 @@
 				<string>9ED1B0E56DE38AA40516CE88</string>
 				<string>7870563089EE4261ED911F86</string>
 				<string>66956372D14F3313EB6C453A</string>
+				<string>C5C069EEF8C454341D375312</string>
 				<string>FD858AF863E8C644104012B2</string>
 				<string>0CC41C024287F057E34D1BC4</string>
 				<string>D9E52CC0E0AD85FDC20B198F</string>
@@ -2190,9 +2230,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>7</string>
+				<string>9</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.4.2</string>
+				<string>0.5.1</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -2251,9 +2291,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>7</string>
+				<string>9</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.4.2</string>
+				<string>0.5.1</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>

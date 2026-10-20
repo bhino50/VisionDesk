@@ -67,6 +67,8 @@ SWIFT_BIN="$(xcrun --find swift)"
 XCODEBUILD="$DEVELOPER_DIR/usr/bin/xcodebuild"
 swift_args=(--configuration release --scratch-path "$WORK_DIR/swift-build")
 swift_flags=(
+    -Xcc "-ffile-prefix-map=$SOURCE_DIR=/source/VisionDesk"
+    -Xcc "-fdebug-prefix-map=$WORK_DIR=/build/VisionDesk"
     -Xswiftc -file-prefix-map -Xswiftc "$SOURCE_DIR=/source/VisionDesk"
     -Xswiftc -debug-prefix-map -Xswiftc "$SOURCE_DIR=/source/VisionDesk"
     -Xswiftc -file-prefix-map -Xswiftc "$WORK_DIR=/build/VisionDesk"

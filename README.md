@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>Up to four Mac displays. A movable Vision Pro window for each one.</strong><br>
-  <a href="https://github.com/bhino50/VisionDesk/releases/latest">Download the preview</a> ·
+  <a href="https://github.com/bhino50/VisionDesk/releases">Download the preview</a> ·
   <a href="BUILD.md">Build &amp; install</a> ·
   <a href="docs/VISUAL_GUIDE.md">Visual walkthrough</a> ·
   <a href="LICENSE">MIT licensed</a>
@@ -12,7 +12,7 @@
 
 **Preview installation:** the Mac download is ad-hoc signed and unnotarized. The Vision Pro download is unsigned and requires your own Xcode signing and provisioning; it is not a one-click headset installer. See [Build & install](BUILD.md).
 
-VisionDesk shows the physical displays attached to a Mac in separate Apple Vision Pro windows. The Mac companion captures up to four displays, streams hardware H.264 video when available, and accepts optional pointer and keyboard input from the paired headset.
+VisionDesk shows attached Mac displays and optional extra desktops in separate Apple Vision Pro windows. The Mac companion captures up to four displays, streams hardware H.264 video when available, and accepts optional pointer and keyboard input from the paired headset.
 
 *The cover illustrates the workflow. The app captures below show the real interface with sample state.*
 
@@ -22,7 +22,7 @@ VisionDesk shows the physical displays attached to a Mac in separate Apple Visio
 
 | Share your screens | Arrange your workspace | Stay in control |
 | --- | --- | --- |
-| Select up to four existing Mac displays. | Open one screen or use **Open All**. | Pointer, scrolling, and keyboard input are optional. |
+| Select up to four attached or extra Mac displays. | Open one screen or use **Open All**. | Pointer, scrolling, and keyboard input are optional. |
 | Pair once on a reachable network. | Move and resize windows with visionOS. | **Stop Control** releases remote input. |
 
 ## See the app
@@ -31,7 +31,7 @@ VisionDesk shows the physical displays attached to a Mac in separate Apple Visio
 
 ![VisionDesk Mac companion with sharing and selected displays](docs/images/mac-companion.png)
 
-Choose which physical displays to share, start sharing, and reveal the pairing key when needed. The pairing key stays hidden in this documentation capture.
+Choose which Mac displays to share, start sharing, and reveal the pairing key when needed. The pairing key stays hidden in this documentation capture.
 
 ### Pair once on Vision Pro
 
@@ -61,7 +61,7 @@ Use **Point & Click** to tap a target directly or pinch and move to drag. **Trac
 4. To control Mac applications, click **Allow Accessibility** on the Mac and grant access in System Settings. Then enable **Allow the paired Vision Pro to control this Mac** (or **Enable Mac Control** after connecting). Click the intended Mac application before sending text or keyboard shortcuts.
 5. Use **Stop Control** to release remote input, or **Stop Sharing** to stop screen sharing. Closing the Mac companion window can leave sharing active in its menu bar.
 
-The headset can remember a successfully paired Mac. Pairing credentials stay in the devices' Keychains. A stopped or sleeping Mac cannot provide a live stream. Nearby discovery also depends on Local Network permission and network multicast support. Optional remote hosting requires an existing Tailscale connection configured by the device owner; VisionDesk provides no relay or VPN service.
+The headset can remember a successfully paired Mac. Pairing credentials stay in the devices' Keychains. A stopped or sleeping Mac cannot provide a live stream. Nearby discovery also depends on Local Network permission and network multicast support. Optional remote hosting requires an existing private VPN route configured by the device owner, such as Tailscale or WireGuard. The Mac must advertise a locally assigned private IPv4 or ULA IPv6 address on port 58271; VisionDesk provides no relay, VPN installation, wake, or remote login service.
 
 ## Build and install
 
@@ -77,7 +77,7 @@ Build and automated-test success do not establish physical headset discovery, pi
 ## Troubleshooting
 
 - **Mac not listed:** open the companion, start sharing, allow Local Network access, and check that both devices can communicate. Guest Wi-Fi and client isolation can block discovery. A saved Mac may need pairing again after its Bonjour name changes.
-- **Missing or unexpected screens:** end Apple's Mac Virtual Display session before using the physical-display workflow. Open **Displays** in the companion and select up to four connected screens. VisionDesk shares existing displays; it does not create extra virtual displays.
+- **Missing or unexpected screens:** open **Displays** in the companion and select up to four screens. To create additional desktops without monitors, stop sharing and choose **Add Desktop** in **Extra desktops**. You can create up to three 1920 × 1080 desktops, then select any four attached or extra screens to share. Extra desktops last only while the Mac companion runs. This optional backend uses an undocumented macOS interface and may be unavailable after an OS change; attached-display sharing remains available.
 - **Blank picture:** grant Screen Recording on the Mac, follow any macOS prompt to quit and reopen the app, and keep the Mac logged in, awake, and unlocked.
 - **Picture works but input does not:** grant Accessibility, enable Mac control, and use **Request Control** on the headset when available. Focus the intended Mac application before typing.
 - **Permissions need granting again after a rebuild:** ad-hoc signing can change the app's identity. Use a stable local signing identity for repeated development.

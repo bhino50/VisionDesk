@@ -30,6 +30,32 @@ func runRemoteAccessChecks(_ runner: CheckRunner) async {
                        screenCaptureAccess: { true }, controlAccess: controlAccess(controlAllowed), keyReveal: quickReveal)
     }
 
+    await runner.check("Private VPN endpoints use canonical literals, a local interface and the fixed port") {
+        let allowed = ["10.24.0.8", "172.20.0.8", "192.168.40.8", "100.64.0.8", "[fd12:3456::8]", "[fc00::8]"]
+        for text in allowed {
+            runner.expect(RemoteAccessReview.endpoint(from: text) != nil, "a private VPN literal is accepted")
+        }
+        let refused = ["8.8.8.8", "127.0.0.1", "169.254.1.8", "224.0.0.8", "172.32.0.8", "100.128.0.8",
+                       "[::1]", "[fe80::8]", "[ff02::8]", "[2001:db8::8]", "[::ffff:10.24.0.8]", "vpn.example.invalid",
+                       "10.24.0.8:58272", "[fd12:3456::8]:58272"]
+        for text in refused {
+            runner.expect(RemoteAccessReview.endpoint(from: text) == nil, "public, scoped, mapped and nonfixed endpoints are refused")
+        }
+        runner.expect(RemoteAccessReview.isOnThisMac("fd12:3456::8", localAddresses: ["FD12:3456:0:0:0:0:0:8"]),
+                      "IPv6 interface matching uses canonical identity")
+        runner.expect(!RemoteAccessReview.isOnThisMac("10.24.0.8", localAddresses: ["10.24.0.9"]),
+                      "another private device's address is not this Mac")
+        runner.expectEqual(RemoteAccessReview.suggestedAddress(["fd12:3456::8"]), "[fd12:3456::8]",
+                           "IPv6 suggestions preserve parser brackets")
+        let storage = RemoteStorageRecorder()
+        let model = host(storage, .disabled, addresses: { ["FD12:3456:0:0:0:0:0:8"] },
+                         keepAwake: KeepAwakeRecorder().hold)
+        runner.expectEqual(model.configureRemoteAccess(address: "[fd12:3456::8]", allowControl: false, keepAwake: false),
+                           .restarted, "owner configuration accepts a canonical local ULA address")
+        runner.expectEqual(model.remoteConfiguration.address, "[fd12:3456::8]:58271", "saved identity includes the fixed port")
+        model.stop()
+    }
+
     await runner.check("Turning remote access on needs an address this Mac has, and saves nothing until then") {
         let storage = RemoteStorageRecorder()
         var addresses = ["127.0.0.1"]  // Tailscale is not connected yet
@@ -46,7 +72,7 @@ func runRemoteAccessChecks(_ runner: CheckRunner) async {
                            "another device's address is refused")
         runner.expectEqual(model.remoteFeedback?.fix, .useAddress("100.64.0.77"), "with this Mac's own address on offer")
         runner.expectEqual(model.configureRemoteAccess(address: "192.168.1.20", allowControl: true, keepAwake: true), .refused,
-                           "an address outside Tailscale is refused")
+                           "another private address absent from this Mac is refused")
         runner.expectEqual(model.remoteFeedback?.fix, .useAddress("100.64.0.77"), "with the same way out")
         runner.expectEqual(model.suggestedRemoteAddress, "100.64.0.77", "which the panel also fills in by itself")
         runner.expect(storage.keySaves == 0 && storage.savedConfigurations.isEmpty, "no key or preference was saved")
@@ -288,7 +314,7 @@ func runRemoteAccessChecks(_ runner: CheckRunner) async {
         runner.expect(addresses.contains("127.0.0.1"), "loopback is always listed")
         runner.expect(addresses.allSatisfy { RemoteMacAddress(host: $0)?.host == $0 && !$0.contains(":") }, "each as a plain IPv4 address")
         runner.expectEqual(LocalNetworkAddresses.tailnet(["127.0.0.1", "100.64.0.77", "100.64.0.1", "100.128.0.1", "10.0.0.2", "100.64.0.77"]),
-                           ["100.64.0.77", "100.64.0.1"], "only Tailscale's range, once each")
+                           ["100.64.0.1", "100.64.0.77"], "only Tailscale's range, sorted once each")
         print("      this Mac lists \(LocalNetworkAddresses.tailnet(addresses).count) Tailscale address(es) right now")
     }
 }

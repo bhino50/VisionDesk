@@ -25,7 +25,7 @@ extension CompanionModel {
             return .stop("Remote host configuration is invalid. Enable remote access again.")
         }
         // Tailscale can still be connecting at login or after a wake. Waiting costs no capture.
-        guard localAddresses().contains(endpoint.host) else {
+        guard RemoteAccessReview.isOnThisMac(endpoint.host, localAddresses: localAddresses()) else {
             return .retry(RemoteAccessReview.waitingForTailscale(endpoint.host))
         }
         do {
@@ -65,7 +65,7 @@ extension CompanionModel {
             return .unchanged
         }
         let addresses = localAddresses()
-        guard addresses.contains(endpoint.host) else {
+        guard RemoteAccessReview.isOnThisMac(endpoint.host, localAddresses: addresses) else {
             remoteFeedback = RemoteAccessReview.notOnThisMac(endpoint.host, localAddresses: addresses)
             return .refused
         }
@@ -182,5 +182,5 @@ extension CompanionModel {
     }
 
     /// This Mac's Tailscale address when it has exactly one, so the owner need not look it up.
-    var suggestedRemoteAddress: String? { RemoteAccessReview.onlyTailnetAddress(localAddresses()) }
+    var suggestedRemoteAddress: String? { RemoteAccessReview.suggestedAddress(localAddresses()) }
 }

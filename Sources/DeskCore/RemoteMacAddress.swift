@@ -96,6 +96,19 @@ public struct RemoteMacAddress: Sendable, Equatable {
         return octets[0] == "100" && (64...127).contains(Int(octets[1])!)
     }
 
+    /// Literal private ranges usable by a separately configured VPN: RFC1918 and
+    /// CGNAT IPv4, plus IPv6 ULA. This is address policy, never VPN availability proof.
+    public var isPrivateIP: Bool {
+        var bytes = [UInt8](repeating: 0, count: 16)
+        if bytes.withUnsafeMutableBytes({ inet_pton(AF_INET, self.host, $0.baseAddress) }) == 1 {
+            return bytes[0] == 10
+                || (bytes[0] == 172 && (16...31).contains(bytes[1]))
+                || (bytes[0] == 192 && bytes[1] == 168)
+                || (bytes[0] == 100 && (64...127).contains(bytes[1]))
+        }
+        return bytes.withUnsafeMutableBytes({ inet_pton(AF_INET6, self.host, $0.baseAddress) }) == 1
+            && (bytes[0] & 0xfe) == 0xfc
+    }
     /// Round-trips through `init?(string:)`. The port is always shown, so the
     /// value a remote headset will actually dial is never implied.
     public var formatted: String {

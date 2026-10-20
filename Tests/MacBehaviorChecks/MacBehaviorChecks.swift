@@ -20,6 +20,7 @@ struct ChecksMain {
         await runLANHostChecks(runner)
         await runDockAppLauncherChecks(runner)
         await runDockDisplayChecks(runner)
+        await runVirtualDisplayChecks(runner)
         await runFrameDeliveryChecks(runner)
         await runVideoDeliveryChecks(runner)
         await runCaptureContinuityChecks(runner)

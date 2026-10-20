@@ -13,11 +13,11 @@ struct RemoteAccessPanel: View {
     private var remote: RemoteHostConfiguration { model.remoteConfiguration }
 
     var body: some View {
-        GroupBox("Remote Workstation · Tailscale") {
+        GroupBox("Remote Workstation · Private VPN") {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Pair once, then reconnect from anywhere with Tailscale running on both devices.")
+                Text("Connect both devices to your private VPN, then pair once to reconnect while away. Tailscale, WireGuard and other VPNs must already provide a route between them.")
                     .foregroundStyle(.secondary)
-                TextField("This Mac’s Tailscale address · 100.x.x.x", text: $address)
+                TextField("This Mac’s VPN IP · IPv4 or [IPv6]", text: $address)
                     .textFieldStyle(.roundedBorder)
                     // Return does what the button does; an address that is already saved changes nothing.
                     .onSubmit(applyAddress)
@@ -115,7 +115,7 @@ struct RemoteAccessPanel: View {
     /// The address as a person types it: VisionDesk's own port goes without saying.
     private func displayAddress(_ saved: String) -> String {
         guard let parsed = RemoteMacAddress(string: saved) else { return saved }
-        return parsed.port == RemoteMacAddress.defaultPort ? parsed.host : parsed.formatted
+        return parsed.port == RemoteMacAddress.defaultPort ? RemoteAccessReview.inputAddress(parsed.host) : parsed.formatted
     }
 
     private func syncFields() {

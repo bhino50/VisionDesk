@@ -53,7 +53,7 @@ struct DisplayWindow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(minWidth: 780, idealWidth: 1120, minHeight: 480, idealHeight: 760)
+        .frame(minWidth: 100, minHeight: 100)
         .glassBackgroundEffect()
         .modifier(DeskWindowLifecycle(model: model))
     }
@@ -69,19 +69,47 @@ private struct ConnectedDisplay: View {
     private enum Accessory { case dock, keyboard, help, details }
     @State private var accessory: Accessory?
     @State private var focusView = false
+    @State private var geometryMessage: String?
     @State private var gestureToken = UUID()
 
     var body: some View {
-        VStack(spacing: focusView ? 8 : 14) {
-            header
-            if let message = windows.message {
-                Text(message).font(.footnote).foregroundStyle(.orange)
+        DisplaySurface(model: model, stream: stream, mode: mode)
+            .id(gestureToken)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(DisplayWindowGeometry(
+                imageSize: CGSize(width: stream.info.width, height: stream.info.height),
+                onFailure: { geometryMessage = $0 }
+            ))
+            .ornament(attachmentAnchor: .scene(.top), contentAlignment: .bottom) {
+                VStack(spacing: 6) {
+                    header
+                    if let message = windows.message ?? geometryMessage {
+                        Text(message).font(.footnote).foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(14)
+                .frame(width: 680)
+                .glassBackgroundEffect()
+                .padding(.bottom, 14)
             }
-
-            HStack(alignment: .top, spacing: 14) {
-                DisplaySurface(model: model, stream: stream, mode: mode)
-                    .id(gestureToken)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ornament(attachmentAnchor: .scene(.bottom), contentAlignment: .top) {
+                VStack(spacing: 8) {
+                    inputToolbar
+                    if !focusView {
+                        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                            Text(controlHint(model, stream: stream, mode: mode))
+                                .font(.footnote).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(14)
+                .frame(width: 680)
+                .glassBackgroundEffect()
+                .padding(.top, 14)
+            }
+            .ornament(attachmentAnchor: .scene(.trailing), contentAlignment: .leading) {
                 if let accessory {
                     VStack(alignment: .trailing, spacing: 6) {
                         Button("Done", systemImage: "xmark") { self.accessory = nil }
@@ -94,11 +122,26 @@ private struct ConnectedDisplay: View {
                             }
                         }
                     }
-                    .frame(width: 340)
+                    .padding(12)
+                    .frame(width: 340, height: 560)
+                    .glassBackgroundEffect()
+                    .padding(.leading, 14)
                 }
             }
+        .onChange(of: mode) { _, _ in
+            // Replacing the surface ends its own active pinch in onDisappear; its recognizer
+            // cannot continue in the previous mode after the selection has changed.
+            gestureToken = UUID()
+        }
+        .onChange(of: accessory) { _, _ in gestureToken = UUID() }
+        .onChange(of: focusView) { _, _ in
+            // Resizing the visible surface ends any previous coordinate space's pinch.
+            gestureToken = UUID()
+        }
+    }
 
-            TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+    private var inputToolbar: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
                 HStack(spacing: 10) {
                     Picker("Interaction mode", selection: $mode) {
                         ForEach(ScreenInteractionMode.allCases) { mode in
@@ -147,26 +190,6 @@ private struct ConnectedDisplay: View {
                     }
                 }
             }
-            if !focusView {
-                TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-                    Text(controlHint(model, stream: stream, mode: mode))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-        }
-        .padding(focusView ? 10 : 20)
-        .onChange(of: mode) { _, _ in
-            // Replacing the surface ends its own active pinch in onDisappear; its recognizer
-            // cannot continue in the previous mode after the selection has changed.
-            gestureToken = UUID()
-        }
-        .onChange(of: accessory) { _, _ in gestureToken = UUID() }
-        .onChange(of: focusView) { _, _ in
-            // Resizing the visible surface ends any previous coordinate space's pinch.
-            gestureToken = UUID()
-        }
     }
 
     private var header: some View {

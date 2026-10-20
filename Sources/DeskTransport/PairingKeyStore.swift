@@ -28,6 +28,8 @@ public enum PairingKeyStoreError: Error, Equatable, Sendable, LocalizedError {
     case notEntitled(OSStatus)
     /// An item exists for this account but is not a 128-bit pairing key.
     case unreadableItem
+    /// The item exists, but its complete access policy is not the policy this app creates.
+    case untrustedItemPolicy
     /// Any other Security.framework failure, carried as its status for support reports.
     case keychainFailure(OSStatus)
 
@@ -39,6 +41,8 @@ public enum PairingKeyStoreError: Error, Equatable, Sendable, LocalizedError {
             return "macOS would not unlock the saved pairing key (Keychain status \(status)). Unlock this Mac, allow VisionDesk access to its keychain item, then try again."
         case let .notEntitled(status):
             return "This build of VisionDesk is not signed with the entitlement needed to reach its keychain item (Keychain status \(status)). Run a signed build, then pair again."
+        case .untrustedItemPolicy:
+            return "The saved pairing item has a different security policy. Remove the saved pairing on this Mac, then pair Vision Pro again. Unlocking Keychain will not repair this item."
         case .unreadableItem:
             return "The saved pairing key is not readable. Forget this Mac and pair again to replace it."
         case let .keychainFailure(status):
@@ -62,6 +66,9 @@ public protocol PairingKeychain: Sendable {
 /// Security.framework. The macOS backend uses an explicit signed-app ACL.
 public struct SystemPairingKeychain: PairingKeychain {
     public init() {}
+
+    // Internal adapter result, outside Security.framework's OSStatus range.
+    static let policyRejectedStatus = OSStatus.min
 
     public func addItem(_ attributes: [String: Any]) -> OSStatus {
         #if os(macOS)
@@ -127,21 +134,150 @@ public struct SystemPairingKeychain: PairingKeychain {
         var actual: SecAccess?
         let accessStatus = SecKeychainItemCopyAccess(item, &actual)
         let (expectedStatus, expected) = makeAccess()
-        guard accessStatus == errSecSuccess, expectedStatus == errSecSuccess,
-              let actual, let expected, hasSamePolicy(actual, as: expected) else { return (errSecAuthFailed, nil) }
+        guard accessStatus == errSecSuccess else { return (accessStatus, nil) }
+        guard expectedStatus == errSecSuccess else { return (expectedStatus, nil) }
+        guard let actual, let expected else { return (errSecInvalidItemRef, nil) }
+        guard hasSamePolicy(actual, as: expected) else { return (policyRejectedStatus, nil) }
         return (errSecSuccess, item)
     }
 
     static func hasSamePolicy(_ actual: SecAccess, as expected: SecAccess) -> Bool {
-        guard let actualPolicy = policy(actual), let expectedPolicy = policy(expected) else { return false }
-        return actualPolicy == expectedPolicy
+        let actualPolicy = policy(actual)
+        let expectedPolicy = policy(expected)
+        writePolicyDiagnostic(actual: actualPolicy, expected: expectedPolicy)
+        guard let actualPolicy, let expectedPolicy else { return false }
+        guard actualPolicy.user == expectedPolicy.user, actualPolicy.group == expectedPolicy.group,
+              actualPolicy.owner == expectedPolicy.owner else { return false }
+        guard let actualEntries = operationalEntries(actualPolicy.entries),
+              let expectedEntries = operationalEntries(expectedPolicy.entries) else { return false }
+        return actualEntries == expectedEntries
     }
 
     private struct Policy: Equatable {
         let user: uid_t
         let group: gid_t
         let owner: SecAccessOwnerType
-        let entries: [String]
+        let entries: [PolicyEntry]
+    }
+
+    struct PolicyEntry: Equatable {
+        let authorizations: [String]
+        let identities: [String]
+        let prompt: UInt16
+        let description: String?
+        var descriptionPresent: Bool { description != nil }
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.authorizations == rhs.authorizations && lhs.identities == rhs.identities && lhs.prompt == rhs.prompt
+        }
+        var sortKey: String { "\(authorizations)|\(identities)|\(prompt)" }
+    }
+
+    /// securityd adds restrictive partition and item-integrity metadata on persistence.
+    /// These are not application grants: retain every operational entry exactly and
+    /// accept only the platform's bounded shapes and this running code's exact partition.
+    static func operationalEntries(_ entries: [PolicyEntry], expectedPartition: String? = nil) -> [PolicyEntry]? {
+        let integrity = kSecACLAuthorizationIntegrity as String
+        let partition = kSecACLAuthorizationPartitionID as String
+        var operational: [PolicyEntry] = []
+        var metadata: [String: PolicyEntry] = [:]
+        for entry in entries {
+            if entry.authorizations.contains(integrity) || entry.authorizations.contains(partition) {
+                guard entry.authorizations.count == 1, let kind = entry.authorizations.first,
+                      metadata[kind] == nil, entry.identities == ["ANY_APPLICATION"], entry.prompt == 0,
+                      let description = entry.description else { return nil }
+                if kind == integrity {
+                    // Apple's ItemImpl hashes item attributes with SHA-256; securityd
+                    // validates the digest on the subsequent actual item-data read.
+                    guard decodeHex(description)?.count == 32 else { return nil }
+                } else {
+                    guard let expectedPartition = expectedPartition ?? currentCodePartition(),
+                          validPartitionDescription(description, expected: expectedPartition) else { return nil }
+                }
+                metadata[kind] = entry
+            } else {
+                operational.append(entry)
+            }
+        }
+        guard metadata.isEmpty || Set(metadata.keys) == Set([integrity, partition]) else { return nil }
+        return operational
+    }
+
+    static func validPartitionDescription(_ description: String, expected: String) -> Bool {
+        guard let data = decodeHex(description),
+              let object = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+              let dictionary = object as? [String: Any], Set(dictionary.keys) == ["Partitions"],
+              let partitions = dictionary["Partitions"] as? [String] else { return false }
+        return partitions == [expected]
+    }
+
+    private static func decodeHex(_ value: String) -> Data? {
+        let bytes = Array(value.utf8)
+        guard !bytes.isEmpty, bytes.count <= 16_384, bytes.count.isMultiple(of: 2) else { return nil }
+        func nibble(_ byte: UInt8) -> UInt8? {
+            switch byte {
+            case 48...57: return byte - 48
+            case 65...70: return byte - 55
+            case 97...102: return byte - 87
+            default: return nil
+            }
+        }
+        var result = Data()
+        for index in stride(from: 0, to: bytes.count, by: 2) {
+            guard let high = nibble(bytes[index]), let low = nibble(bytes[index + 1]) else { return nil }
+            result.append(high << 4 | low)
+        }
+        return result
+    }
+
+    private static func currentCodePartition() -> String? {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+        var information: CFDictionary?
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
+              let information = information as? [String: Any] else { return nil }
+        if let team = information[kSecCodeInfoTeamIdentifier as String] as? String, !team.isEmpty {
+            return "teamid:" + team
+        }
+        guard let hash = information[kSecCodeInfoUnique as String] as? Data, hash.count == 20 else { return nil }
+        return "cdhash:" + hash.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Opt-in disposable diagnostic only. Never emits identities, paths, ACL blobs, IDs or secrets.
+    private static func writePolicyDiagnostic(actual: Policy?, expected: Policy?) {
+        guard ProcessInfo.processInfo.arguments.contains("--pairing-store-check") else { return }
+        var report: [String: Any] = ["actualParsed": actual != nil, "expectedParsed": expected != nil]
+        if let actual, let expected {
+            report["ownerUserMatches"] = actual.user == expected.user
+            report["ownerGroupMatches"] = actual.group == expected.group
+            report["ownerTypeMatches"] = actual.owner == expected.owner
+            report["actualEntryCount"] = actual.entries.count
+            report["expectedEntryCount"] = expected.entries.count
+            report["entriesMatch"] = actual.entries == expected.entries
+            report["actualPlatformMetadataValid"] = operationalEntries(actual.entries) != nil
+            report["expectedPlatformMetadataValid"] = operationalEntries(expected.entries) != nil
+            report["currentCodePartitionAvailable"] = currentCodePartition() != nil
+            report["metadataDescriptionLengths"] = actual.entries.filter {
+                $0.authorizations.contains(kSecACLAuthorizationIntegrity as String) || $0.authorizations.contains(kSecACLAuthorizationPartitionID as String)
+            }.map { $0.description?.utf8.count ?? 0 }
+            report["entryComparisons"] = actual.entries.enumerated().map { index, entry -> [String: Any] in
+                guard expected.entries.indices.contains(index) else { return ["index": index, "expectedPresent": false, "authorizations": entry.authorizations, "identityCount": entry.identities.count, "promptFlags": entry.prompt, "descriptionPresent": entry.descriptionPresent] }
+                let other = expected.entries[index]
+                return ["index": index, "expectedPresent": true,
+                        "authorizationCount": entry.authorizations.count,
+                        "expectedAuthorizationCount": other.authorizations.count,
+                        "authorizationsMatch": entry.authorizations == other.authorizations,
+                        "identityCount": entry.identities.count,
+                        "expectedIdentityCount": other.identities.count,
+                        "identitiesMatch": entry.identities == other.identities,
+                        "promptMatches": entry.prompt == other.prompt]
+            }
+        }
+        let destination = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("pairing-policy-check.json")
+        if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: destination, options: .atomic)
+        }
     }
 
     private static func policy(_ access: SecAccess) -> Policy? {
@@ -152,7 +288,7 @@ public struct SystemPairingKeychain: PairingKeychain {
         guard SecAccessCopyOwnerAndACL(access, &user, &group, &owner, nil) == errSecSuccess,
               SecAccessCopyACLList(access, &list) == errSecSuccess,
               let entries = list as? [SecACL] else { return nil }
-        var result: [String] = []
+        var result: [PolicyEntry] = []
         for entry in entries {
             var applications: CFArray?
             var description: CFString?
@@ -170,9 +306,9 @@ public struct SystemPairingKeychain: PairingKeychain {
                 identities.append("ANY_APPLICATION")
             }
             let authorizations = (SecACLCopyAuthorizations(entry) as NSArray).map { String(describing: $0) }.sorted()
-            result.append("\(authorizations)|\(identities.sorted())|\(prompt.rawValue)")
+            result.append(PolicyEntry(authorizations: authorizations, identities: identities.sorted(), prompt: prompt.rawValue, description: description as String?))
         }
-        return Policy(user: user, group: group, owner: owner, entries: result.sorted())
+        return Policy(user: user, group: group, owner: owner, entries: result.sorted { $0.sortKey < $1.sortKey })
     }
     #endif
 
@@ -299,6 +435,8 @@ public struct PairingKeyStore: Sendable {
 
     private static func failure(_ status: OSStatus) -> PairingKeyStoreError {
         switch status {
+        case SystemPairingKeychain.policyRejectedStatus:
+            return .untrustedItemPolicy
         case errSecInteractionNotAllowed, errSecInteractionRequired, errSecAuthFailed, errSecUserCanceled:
             return .accessDenied(status)
         case errSecMissingEntitlement:

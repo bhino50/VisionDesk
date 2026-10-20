@@ -23,6 +23,7 @@ enum LANHostKeychain {
     static let account = "mac.lan-v1"
     static func load() throws -> PairingKey? { try PairingKeyStore().load(account: account) }
     static func save(_ key: PairingKey) throws { try PairingKeyStore().save(key, account: account) }
+    static func delete() throws { try PairingKeyStore().delete(account: account) }
 }
 
 /// Listener settings used by the actual server start and by isolated behavior checks.

@@ -1,4 +1,5 @@
 import AppKit
+import Security
 import Combine
 import ScreenCaptureKit
 import DeskCore
@@ -64,6 +65,7 @@ final class CompanionModel: ObservableObject {
     /// The answer to the owner's last action in the remote access panel, shown beside it.
     @Published var lanConfiguration: LANHostConfiguration
     let loadLANKey: () throws -> PairingKey?
+    let deleteLANKey: () throws -> Void
     let saveLANKey: (PairingKey) throws -> Void
     let saveLANConfiguration: (LANHostConfiguration) -> Void
     /// Set only after the remembered-key listener starts; cleared on every teardown.
@@ -167,6 +169,7 @@ final class CompanionModel: ObservableObject {
          lanConfiguration: LANHostConfiguration = .disabled,
          loadLANKey: @escaping () throws -> PairingKey? = LANHostKeychain.load,
          saveLANKey: @escaping (PairingKey) throws -> Void = LANHostKeychain.save,
+         deleteLANKey: @escaping () throws -> Void = LANHostKeychain.delete,
          saveLANConfiguration: @escaping (LANHostConfiguration) -> Void = { $0.save() },
          remoteConfiguration: RemoteHostConfiguration = .disabled,
          localAddresses: @escaping () -> [String] = LocalNetworkAddresses.all,
@@ -192,6 +195,7 @@ final class CompanionModel: ObservableObject {
         self.lanConfiguration = lanConfiguration
         self.loadLANKey = loadLANKey
         self.saveLANKey = saveLANKey
+        self.deleteLANKey = deleteLANKey
         self.saveLANConfiguration = saveLANConfiguration
         ownerPausedControl = remoteConfiguration.enabled ? remoteConfiguration.ownerPaused : lanConfiguration.ownerPaused
         peerPausedControl = remoteConfiguration.enabled ? remoteConfiguration.peerPaused : lanConfiguration.peerPaused
@@ -283,8 +287,10 @@ final class CompanionModel: ObservableObject {
             switch error {
             case .invalidAccount, .notEntitled:
                 stop(); status = error.localizedDescription; return
-            case .unreadableItem:
+            case .untrustedItemPolicy, .unreadableItem:
                 stop(); status = "Saved pairing needs repair. Open Settings & Troubleshooting and reset pairing, then try again."; return
+            case .accessDenied(let code) where code == errSecAuthFailed || code == errSecUserCanceled:
+                stop(); status = error.localizedDescription; return
             default:
                 recoverRemote(after: "Could not access saved pairing. Unlock Keychain, then try again."); return
             }

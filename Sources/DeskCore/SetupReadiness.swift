@@ -7,7 +7,7 @@
 // pairing key, whether a one-session key or a remembered one.
 //
 // Control names quoted in the guidance are the companion's current titles:
-// Start Sharing & Control, Stop Sharing, Show Pairing Key, Allow Screen
+// Start Sharing, Stop Sharing, Show Pairing Key, Allow Screen
 // Recording, Allow Accessibility, Enable Test Input, Enable Mac Control, and
 // the Sharing & Pairing section. Renaming one of those means updating it here.
 
@@ -260,7 +260,7 @@ public struct SetupReadiness: Sendable, Equatable {
         guard snapshot.sharing else {
             return SetupCheck(id: .sharing, track: .viewing, title: title, status: .actionNeeded,
                               detail: "Capture is stopped. Nothing is leaving this Mac.",
-                              nextStep: "Choose Start Sharing & Control.")
+                              nextStep: "Choose Start Sharing.")
         }
         let count = snapshot.displayCount
         return SetupCheck(id: .sharing, track: .viewing, title: title, status: .ready,
@@ -282,14 +282,14 @@ public struct SetupReadiness: Sendable, Equatable {
             return SetupCheck(id: .headset, track: .viewing, title: title, status: .actionNeeded,
                               detail: "No live session, because sharing is stopped on this Mac.",
                               nextStep: snapshot.rememberedPairing
-                                  ? "Choose Start Sharing & Control, then open VisionDesk on Vision Pro and choose this Mac's saved card."
+                                  ? "Choose Start Sharing, then open VisionDesk on Vision Pro and choose this Mac's saved card."
                                   : "Start sharing on this Mac, then pair from Vision Pro.")
         }
         if snapshot.rememberedPairing { return rememberedHeadsetCheck(snapshot, title: title) }
         guard snapshot.pairingKeyReady else {
             return SetupCheck(id: .headset, track: .viewing, title: title, status: .actionNeeded,
                               detail: "Sharing is running, but there is no session key and no headset connected.",
-                              nextStep: "Choose Stop Sharing, then Start Sharing & Control for a fresh one-session key.")
+                              nextStep: "Choose Stop Sharing, then Start Sharing to retry the saved connection.")
         }
         return SetupCheck(id: .headset, track: .viewing, title: title, status: .actionNeeded,
                           detail: "Sharing is running and waiting for the headset to pair.",

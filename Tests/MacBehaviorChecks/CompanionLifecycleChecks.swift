@@ -11,7 +11,7 @@ import Network
 @MainActor
 func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
     await runner.check("Terminal or explicitly denied Keychain failures do not retry") {
-        let errors: [PairingKeyStoreError] = [.notEntitled(errSecMissingEntitlement), .unreadableItem,
+        let errors: [PairingKeyStoreError] = [.notEntitled(errSecMissingEntitlement), .unreadableItem, .untrustedItemPolicy,
                                              .accessDenied(errSecUserCanceled), .accessDenied(errSecAuthFailed)]
         var loads = Array(repeating: 0, count: errors.count)
         var models: [CompanionModel] = []

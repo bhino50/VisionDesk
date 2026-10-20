@@ -35,6 +35,8 @@ extension CompanionModel {
             return .ready(endpoint, key)
         } catch let storageError as PairingKeyStoreError {
             switch storageError {
+            case .untrustedItemPolicy:
+                return .stop("Remote pairing has a different security policy. Choose Disable & Forget in Settings & Troubleshooting, then enable remote access and pair again.")
             case .invalidAccount, .notEntitled, .unreadableItem:
                 return .stop("Remote pairing needs repair: \(storageError.localizedDescription)")
             case .accessDenied(let code) where code == errSecUserCanceled || code == errSecAuthFailed:

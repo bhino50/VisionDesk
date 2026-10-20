@@ -21,9 +21,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func runDiagnosticsWhenReady() {
         guard hasLaunched, let model, !diagnosticsStarted,
-              CommandLine.arguments.contains("--runtime-report") || CommandLine.arguments.contains("--capture-check") || CommandLine.arguments.contains("--input-latency-check") else { return }
+              CommandLine.arguments.contains("--runtime-report") || CommandLine.arguments.contains("--capture-check") || CommandLine.arguments.contains("--input-latency-check") || CommandLine.arguments.contains("--pairing-store-check") else { return }
         diagnosticsStarted = true
         Task { @MainActor [self] in
+            if CommandLine.arguments.contains("--pairing-store-check") {
+                PairingStoreCheck.run()
+                if !CommandLine.arguments.contains("--runtime-report") { return }
+            }
             // Bind to the window's actual onAppear instead of assuming it appears by 0.8s.
             for _ in 0..<20 {
                 if NSApp.windows.contains(where: { $0.isVisible }) { break }

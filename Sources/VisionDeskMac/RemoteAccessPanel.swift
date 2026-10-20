@@ -38,7 +38,7 @@ struct RemoteAccessPanel: View {
                 }
             }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
         }
-        .confirmationDialog("Turn off remote access and forget the pairing key?", isPresented: $confirmingForget) {
+        .confirmationDialog(remote.enabled ? "Turn off remote access and forget the pairing key?" : "Forget saved VPN pairing?", isPresented: $confirmingForget) {
             Button("Disable & Forget", role: .destructive) { model.disableRemoteAccess() }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -61,6 +61,9 @@ struct RemoteAccessPanel: View {
                 Button("Disable & Forget…", role: .destructive) { confirmingForget = true }
             } else {
                 Button("Enable Remote Access", action: applyAddress).buttonStyle(.borderedProminent)
+                if model.remoteFeedback?.tone == .problem {
+                    Button("Reset VPN Pairing…", role: .destructive) { confirmingForget = true }
+                }
             }
         }
     }

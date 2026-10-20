@@ -89,6 +89,45 @@ final class PairingKeyStoreTests: XCTestCase {
 
     }
 
+    func testPersistedPlatformMetadataRequiresExactBoundedSecurityShape() throws {
+        typealias Entry = SystemPairingKeychain.PolicyEntry
+        let integrityAuth = kSecACLAuthorizationIntegrity as String
+        let partitionAuth = kSecACLAuthorizationPartitionID as String
+        let operation = Entry(authorizations: [kSecACLAuthorizationDecrypt as String], identities: ["signed-self"], prompt: 0, description: nil)
+        let integrity = Entry(authorizations: [integrityAuth], identities: ["ANY_APPLICATION"], prompt: 0, description: String(repeating: "a", count: 64))
+        func description(_ partitions: [String]) throws -> String {
+            try PropertyListSerialization.data(fromPropertyList: ["Partitions": partitions], format: .xml, options: 0)
+                .map { String(format: "%02x", $0) }.joined()
+        }
+        func partition(_ partitions: [String], identities: [String] = ["ANY_APPLICATION"], prompt: UInt16 = 0) throws -> Entry {
+            Entry(authorizations: [partitionAuth], identities: identities, prompt: prompt, description: try description(partitions))
+        }
+        for expected in ["teamid:SYNTHETIC", "cdhash:" + String(repeating: "b", count: 40)] {
+            let valid = try partition([expected])
+            XCTAssertEqual(SystemPairingKeychain.operationalEntries([operation, integrity, valid], expectedPartition: expected), [operation])
+            let invalid: [[Entry]] = [
+                [operation, integrity], [operation, valid], [operation, integrity, integrity, valid],
+                [operation, integrity, valid, valid],
+                [operation, integrity, try partition(["teamid:FOREIGN"])],
+                [operation, integrity, try partition([expected, "teamid:FOREIGN"])],
+                [operation, integrity, try partition([expected, expected])],
+                [operation, integrity, try partition([expected], identities: [])],
+                [operation, integrity, try partition([expected], identities: ["foreign-app"])],
+                [operation, integrity, try partition([expected], prompt: 1)],
+                [operation, integrity, Entry(authorizations: [partitionAuth, kSecACLAuthorizationDecrypt as String], identities: ["ANY_APPLICATION"], prompt: 0, description: valid.description)],
+                [operation, Entry(authorizations: [integrityAuth], identities: ["ANY_APPLICATION"], prompt: 0, description: "nothex"), valid],
+                [operation, Entry(authorizations: [integrityAuth], identities: ["ANY_APPLICATION"], prompt: 0, description: String(repeating: "a", count: 62)), valid],
+                [operation, integrity, Entry(authorizations: [partitionAuth], identities: ["ANY_APPLICATION"], prompt: 0, description: "abcd")]
+            ]
+            for entries in invalid {
+                XCTAssertNil(SystemPairingKeychain.operationalEntries(entries, expectedPartition: expected))
+            }
+        }
+        XCTAssertEqual(SystemPairingKeychain.operationalEntries([operation]), [operation])
+        let unknown = Entry(authorizations: ["unknown-operation"], identities: [], prompt: 0, description: nil)
+        XCTAssertEqual(SystemPairingKeychain.operationalEntries([operation, unknown]), [operation, unknown], "unknown operations remain in exact policy comparison, never normalized away")
+    }
+
     func testClassicPolicyIncludesOwnerAndEveryOperationWithoutTouchingKeychains() throws {
         let (status, expectedAccess) = SystemPairingKeychain.makeAccess()
         XCTAssertEqual(status, errSecSuccess)
@@ -185,6 +224,22 @@ final class PairingKeyStoreTests: XCTestCase {
         }
     }
 
+    func testRejectedPolicyDoesNotDeleteOrReplaceExistingCredential() throws {
+        let keychain = FakeKeychain()
+        let store = PairingKeyStore(service: service, keychain: keychain)
+        let original = PairingKey.generate()
+        try store.save(original, account: account)
+        let oldItems = keychain.items
+        let adds = keychain.addAttributes.count
+        keychain.forcedStatus = SystemPairingKeychain.policyRejectedStatus
+        XCTAssertThrowsError(try store.save(.generate(), account: account)) {
+            XCTAssertEqual($0 as? PairingKeyStoreError, .untrustedItemPolicy)
+        }
+        XCTAssertTrue(keychain.items == oldItems)
+        XCTAssertEqual(keychain.deleteCount, 0)
+        XCTAssertEqual(keychain.addAttributes.count, adds)
+    }
+
     func testDeniedAndUnentitledFailuresAreDistinguishedFromMissing() throws {
         let cases: [(OSStatus, PairingKeyStoreError)] = [
             (errSecInteractionNotAllowed, .accessDenied(errSecInteractionNotAllowed)),
@@ -192,6 +247,7 @@ final class PairingKeyStoreTests: XCTestCase {
             (errSecAuthFailed, .accessDenied(errSecAuthFailed)),
             (errSecUserCanceled, .accessDenied(errSecUserCanceled)),
             (errSecMissingEntitlement, .notEntitled(errSecMissingEntitlement)),
+            (SystemPairingKeychain.policyRejectedStatus, .untrustedItemPolicy),
             (errSecDecode, .keychainFailure(errSecDecode)),
             (errSecNotAvailable, .keychainFailure(errSecNotAvailable))
         ]
@@ -209,7 +265,9 @@ final class PairingKeyStoreTests: XCTestCase {
                 XCTAssertEqual($0 as? PairingKeyStoreError, expected)
             }
             let message = try XCTUnwrap(expected.errorDescription)
-            XCTAssertTrue(message.contains("\(status)"), "A support report needs the status code.")
+            if expected != .untrustedItemPolicy {
+                XCTAssertTrue(message.contains("\(status)"), "A support report needs the system status code.")
+            }
         }
     }
 

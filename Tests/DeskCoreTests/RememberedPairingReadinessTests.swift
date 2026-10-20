@@ -67,7 +67,7 @@ final class RememberedPairingReadinessTests: XCTestCase {
         let readiness = SetupReadiness(snapshot: legacy)
         XCTAssertEqual(readiness.headset.status, .actionNeeded)
         XCTAssertEqual(readiness.headset.nextStep,
-                       "Choose Stop Sharing, then Start Sharing & Control for a fresh one-session key.")
+                       "Choose Stop Sharing, then Start Sharing to retry the saved connection.")
         XCTAssertEqual(readiness.primaryNextStep, readiness.headset.nextStep)
     }
 
@@ -121,10 +121,10 @@ final class RememberedPairingReadinessTests: XCTestCase {
     func testAStoppedRememberedHostAsksToStartSharingByItsCurrentName() {
         let readiness = SetupReadiness(snapshot: remembered(sharing: false))
         XCTAssertEqual(readiness.sharing.status, .actionNeeded)
-        XCTAssertEqual(readiness.primaryNextStep, "Choose Start Sharing & Control.")
+        XCTAssertEqual(readiness.primaryNextStep, "Choose Start Sharing.")
         XCTAssertEqual(readiness.headset.status, .actionNeeded)
         XCTAssertEqual(readiness.headset.nextStep,
-                       "Choose Start Sharing & Control, then open VisionDesk on Vision Pro and choose this Mac's saved card.")
+                       "Choose Start Sharing, then open VisionDesk on Vision Pro and choose this Mac's saved card.")
         assertNoFreshKeyAdvice(readiness, "stopped remembered host")
     }
 
@@ -141,10 +141,10 @@ final class RememberedPairingReadinessTests: XCTestCase {
 
     func testGuidanceNamesTheCompanionControlsByTheirCurrentTitles() {
         let stopped = SetupReadiness(snapshot: SetupSnapshot(displayCount: 1, screenRecordingAllowed: true))
-        XCTAssertEqual(stopped.sharing.nextStep, "Choose Start Sharing & Control.")
+        XCTAssertEqual(stopped.sharing.nextStep, "Choose Start Sharing.")
         let keyless = SetupReadiness(snapshot: SetupSnapshot(displayCount: 1, screenRecordingAllowed: true, sharing: true))
         XCTAssertEqual(keyless.headset.nextStep,
-                       "Choose Stop Sharing, then Start Sharing & Control for a fresh one-session key.")
+                       "Choose Stop Sharing, then Start Sharing to retry the saved connection.")
         let keyed = SetupReadiness(snapshot: SetupSnapshot(displayCount: 1, screenRecordingAllowed: true, sharing: true,
                                                            pairingKeyReady: true))
         XCTAssertEqual(keyed.headset.nextStep,

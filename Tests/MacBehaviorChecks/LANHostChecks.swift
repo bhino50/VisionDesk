@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import Network
 import DeskCore
 import DeskTransport
@@ -9,7 +10,7 @@ func runLANHostChecks(_ runner: CheckRunner) async {
     let connection = { DeskConnection(endpoint: .hostPort(host: "127.0.0.1", port: 1), key: PairingKey.generate()) }
     func host(_ storage: RemoteStorageRecorder, configuration: LANHostConfiguration = .disabled,
               save: @escaping (LANHostConfiguration) -> Void = { _ in }) -> CompanionModel {
-        CompanionModel(lanConfiguration: configuration, loadLANKey: storage.load, saveLANKey: storage.save,
+        CompanionModel(lanConfiguration: configuration, loadLANKey: storage.load, saveLANKey: storage.save, deleteLANKey: storage.delete,
                        saveLANConfiguration: save, contentProvider: { throw CheckError.preparationAbandoned },
                        inventory: { [syntheticDisplay(1)] }, liveSession: { available },
                        keepAwake: KeepAwakeRecorder().hold, screenCaptureAccess: { true },
@@ -115,6 +116,45 @@ func runLANHostChecks(_ runner: CheckRunner) async {
         runner.expect(storage.key?.displayValue != original.displayValue && storage.keySaves == 1, "the explicit reset replaces the LAN key")
         runner.expect(!model.pairingKey.isEmpty, "the new key is available for pairing")
         model.hidePairingKey(); model.stop()
+    }
+
+    await runner.check("Rejected nearby pairing stops without retry or credential replacement") {
+        var loads = 0
+        var mutations = 0
+        let model = CompanionModel(loadLANKey: { loads += 1; throw PairingKeyStoreError.untrustedItemPolicy },
+                                   saveLANKey: { _ in mutations += 1 }, deleteLANKey: { mutations += 1 },
+                                   saveLANConfiguration: { _ in },
+                                   contentProvider: { runner.expect(false, "rejected credentials must not capture"); throw CheckError.preparationAbandoned },
+                                   inventory: { [syntheticDisplay(1)] }, liveSession: { available })
+        model.start()
+        runner.expect(loads == 1 && mutations == 0, "start does not mutate rejected credentials")
+        runner.expect(!model.restartPending && !model.busy && !model.sharing, "policy rejection is terminal")
+        runner.expect(model.status.contains("reset pairing"), "the actionable repair is shown")
+        model.stop()
+    }
+
+    await runner.check("Confirmed reset deletes before saving and reports replacement failure honestly") {
+        var operations: [String] = []
+        let model = CompanionModel(loadLANKey: { throw PairingKeyStoreError.untrustedItemPolicy },
+                                   saveLANKey: { _ in operations.append("save"); throw PairingKeyStoreError.accessDenied(errSecAuthFailed) },
+                                   deleteLANKey: { operations.append("delete") }, saveLANConfiguration: { _ in },
+                                   contentProvider: { throw CheckError.preparationAbandoned })
+        model.resetLANPairing()
+        runner.expectEqual(operations, ["delete", "save"], "only confirmed reset bypasses the unusable old item by deleting first")
+        runner.expect(!model.sharing && !model.restartPending && model.pairingKey.isEmpty, "no unsafe sharing or reveal after replacement fails")
+        runner.expect(model.status.contains("Old pairing removed"), "the old credential is not claimed to survive deletion")
+        model.stop()
+    }
+
+    await runner.check("Denied reset deletion preserves the existing item and never attempts a save") {
+        var saves = 0
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in saves += 1 },
+                                   deleteLANKey: { throw PairingKeyStoreError.accessDenied(errSecAuthFailed) },
+                                   saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
+        model.resetLANPairing()
+        runner.expect(saves == 0 && model.pairingKey.isEmpty && !model.sharing, "delete refusal cannot rotate or reveal a replacement")
+        runner.expect(model.status.contains("old item was kept"), "failure reports preservation")
+        model.stop()
     }
 
     await runner.check("A same-network switch selects one LAN listener and preserves remote pairing and policy") {

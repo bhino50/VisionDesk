@@ -73,23 +73,31 @@ extension CompanionModel {
             }
             dropCachedScreenContent()
             revealPairingKey(key, for: keyReveal.onRequest)
-        } catch { status = "Could not read saved pairing. Unlock Keychain, then try again." }
+        } catch { status = "Could not read saved pairing. \(error.localizedDescription)" }
     }
 
     /// An explicit, confirmed owner action. The old connection ends before the key changes.
-    /// A failed secure save leaves sharing stopped, with the previous credential untouched.
+    /// Only this confirmed action removes the old item. If replacement fails, sharing stays
+    /// stopped and the owner must retry reset; ordinary saves never delete an existing key.
     func resetLANPairing() {
         guard !remoteConfiguration.enabled else { return }
         stop()
         hidePairingKey()
+        var removedOldItem = false
         do {
             let key = PairingKey.generate()
-            try saveLANKey(key)
+            try deleteLANKey()
+            removedOldItem = true
             adoptLANConfiguration(.disabled)
+            try saveLANKey(key)
             ownerPausedControl = false; peerPausedControl = false
             revealPairingKey(key, for: keyReveal.firstPairing)
             status = "Pairing reset. Start sharing, then pair Vision Pro with this key."
-        } catch { status = "Could not reset saved pairing. Unlock Keychain, then try again." }
+        } catch {
+            status = removedOldItem
+                ? "Old pairing removed, but the replacement could not be saved. Sharing is stopped. Retry Reset Saved Pairing. \(error.localizedDescription)"
+                : "Could not remove saved pairing. Sharing is stopped and the old item was kept. \(error.localizedDescription)"
+        }
     }
 
     /// Switches the single listener to nearby sharing without forgetting remote pairing.

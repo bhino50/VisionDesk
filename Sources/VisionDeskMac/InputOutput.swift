@@ -102,6 +102,13 @@ final class InputOutput {
     /// Our own record of the left button. Set only once a down event actually exists, so a
     /// construction failure can never be counted as a held button.
     private var held = false
+    private var clickCount: Int64 = 1
+    private var clickDown: (point: CGPoint, at: TimeInterval)?
+    private var completedClick: (point: CGPoint, at: TimeInterval, count: Int64)?
+    private var clickDisplay: (id: UInt32, bounds: CGRect)?
+    // Quartz coordinates are points. A small tolerance accommodates spatial pinch jitter.
+    private static let clickDistance: CGFloat = 4
+
 
     /// The last point an event was posted at, so a release never has to fall back to (0, 0).
     private var lastPoint: CGPoint?
@@ -150,7 +157,8 @@ final class InputOutput {
     /// Always posts the matching up while `held`, then clears the hold unconditionally so the
     /// watchdog can never be left waiting on a drag that has already ended.
     func release() {
-        if held { post(.leftMouseUp, point: currentPoint()) }
+        if held { post(.leftMouseUp, point: currentPoint(), clickCount: clickCount) }
+        resetClicks()
         held = false
         dragStarted = nil
         scrollRemainder = ScrollRemainder(); scrollDisplay = nil
@@ -172,23 +180,45 @@ final class InputOutput {
         default: cost = 1
         }
         guard workBudget.reserve(cost, at: uptime()) else { return }
+        if clickDisplay?.id != id || clickDisplay?.bounds != bounds {
+            resetClicks()
+            clickDisplay = (id, bounds)
+        }
         let point = Self.point(x: message.x, y: message.y, in: bounds)
         switch message.action {
         case "move":
             scrollRemainder = ScrollRemainder(); scrollDisplay = nil
             guard let point else { return }
+            if held, let down = clickDown, !Self.near(down.point, point) {
+                clickDown = nil
+                completedClick = nil
+            }
             post(isDragging() ? .leftMouseDragged : .mouseMoved, point: point)
         case "leftDown":
             guard let point, !held else { return }
             // Enigo takes the button down at the cursor's current location, after a separate
             // move, so the view under the pointer sees the hover before the press.
             post(.mouseMoved, point: point)
-            guard post(.leftMouseDown, point: point) else { return }
+            let stamp = uptime()
+            if let previous = completedClick, stamp >= previous.at,
+               stamp - previous.at <= NSEvent.doubleClickInterval, Self.near(previous.point, point) {
+                clickCount = min(previous.count, Int64.max - 1) + 1
+            } else { clickCount = 1 }
+            guard post(.leftMouseDown, point: point, clickCount: clickCount) else { return }
+            clickDown = (point, stamp)
+            completedClick = nil
             held = true
             dragStarted = ProcessInfo.processInfo.systemUptime
         case "leftUp":
             guard held else { return }
-            post(.leftMouseUp, point: point ?? currentPoint())
+            let releasePoint = point ?? currentPoint()
+            let stamp = uptime()
+            if post(.leftMouseUp, point: releasePoint, clickCount: clickCount),
+               let down = clickDown, Self.near(down.point, releasePoint), stamp >= down.at,
+               stamp - down.at <= NSEvent.doubleClickInterval {
+                completedClick = (down.point, down.at, clickCount)
+            } else { completedClick = nil }
+            clickDown = nil
             held = false
             dragStarted = nil
         case "rightClick":
@@ -200,21 +230,34 @@ final class InputOutput {
             guard let point else { return }
             release()
             post(.mouseMoved, point: point)
-            // Click state 2 on the second pair is what makes the system read a double click;
-            // Enigo likewise only sets the field once the count passes one.
+            // Both halves of each pair carry the native count, including the initial click.
             postAtomically((1...2).flatMap { count in
                 [Step(.leftMouseDown, point, .left, count), Step(.leftMouseUp, point, .left, count)]
             })
         case "scroll":
+            completedClick = nil; clickDown = nil
             if scrollDisplay != id { scrollRemainder = ScrollRemainder(); scrollDisplay = id }
             scroll(deltaX: message.deltaX, deltaY: message.deltaY, point: point)
         case "text":
+            completedClick = nil; clickDown = nil
             for chunk in chunks { type(chunk) }
         case "key":
+            completedClick = nil; clickDown = nil
             guard let name = message.text, let shortcut = Self.keys[name] else { return }
             press(code: shortcut.0, flags: shortcut.1)
         default: break
         }
+    }
+
+    private func resetClicks() {
+        completedClick = nil
+        clickDown = nil
+        clickCount = 1
+        clickDisplay = nil
+    }
+
+    private static func near(_ a: CGPoint, _ b: CGPoint) -> Bool {
+        hypot(a.x - b.x, a.y - b.y) <= clickDistance
     }
 
     // MARK: - Pointer
@@ -231,6 +274,7 @@ final class InputOutput {
               ProcessInfo.processInfo.systemUptime - started >= Self.holdReconcileGrace else { return true }
         held = false
         dragStarted = nil
+        resetClicks()
         return false
     }
 
@@ -363,7 +407,11 @@ final class InputOutput {
     private func makeEvent(_ step: Step) -> CGEvent? {
         guard let event = CGEvent(mouseEventSource: source, mouseType: step.type,
                                   mouseCursorPosition: step.point, mouseButton: step.button) else { return nil }
-        if step.clickCount > 1 { event.setIntegerValueField(.mouseEventClickState, value: step.clickCount) }
+        switch step.type {
+        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp:
+            event.setIntegerValueField(.mouseEventClickState, value: step.clickCount)
+        default: break
+        }
         // Same reason as the text path: a pointer event must not inherit a latched modifier.
         event.flags = []
         return event

@@ -1,3 +1,4 @@
+import AppKit
 import DeskTransport
 import CoreGraphics
 import DeskCore
@@ -7,6 +8,44 @@ import Foundation
 /// so no Quartz event is ever posted and the Accessibility permission is never requested.
 @MainActor
 func runInputMappingChecks(_ runner: CheckRunner) async {
+    await runner.check("Ordinary remote pinches carry native consecutive click counts") {
+        var events: [CGEvent] = []
+        var stamp: TimeInterval = 100
+        var bounds = CGRect(x: 0, y: 0, width: 1001, height: 1001)
+        let permission = InputPermissionCache(isTrusted: { true }, canPostEvents: { true }, now: { stamp })
+        let output = InputOutput(permission: permission, eventSink: { events.append($0) },
+                                 displayBounds: { _ in bounds }, uptime: { stamp })
+        @MainActor func send(_ action: String, _ x: Double = 0.5, _ y: Double = 0.5, id: UInt32 = 1) {
+            output.apply(DeskMessage(kind: "input", displayID: id, x: x, y: y, action: action))
+        }
+        @MainActor func click(_ x: Double = 0.5, id: UInt32 = 1) { send("leftDown", x, id: id); send("leftUp", x, id: id) }
+        func latestCount() -> Int64? { events.last?.getIntegerValueField(.mouseEventClickState) }
+        click()
+        stamp += NSEvent.doubleClickInterval / 3
+        click(0.502)
+        runner.expectEqual(latestCount(), 2, "nearby rapid second pinch completes double-click")
+        let downs = events.filter { $0.type == .leftMouseDown }
+        runner.expectEqual(downs.map { $0.getIntegerValueField(.mouseEventClickState) }, [1, 2], "both down events have native counts")
+        stamp += NSEvent.doubleClickInterval + 0.01
+        click()
+        runner.expectEqual(latestCount(), 1, "expired interval starts a new sequence")
+        click(0.6)
+        runner.expectEqual(latestCount(), 1, "distant click starts a new sequence")
+        output.release(); click(0.6)
+        runner.expectEqual(latestCount(), 1, "session release clears click history")
+        send("rightClick", 0.6); click(0.6)
+        runner.expectEqual(latestCount(), 1, "right-click clears left sequence")
+        bounds.size.width = 1200; click(0.6)
+        runner.expectEqual(latestCount(), 1, "geometry change clears sequence")
+        click(0.6, id: 2)
+        runner.expectEqual(latestCount(), 1, "display switch clears sequence")
+        send("leftDown", 0.6, id: 2); send("move", 0.7, id: 2); send("leftUp", 0.6, id: 2)
+        click(0.6, id: 2)
+        runner.expectEqual(latestCount(), 1, "drag out and back cannot become a later double-click")
+        output.release(); send("doubleClick")
+        runner.expectEqual(events.suffix(4).map { $0.getIntegerValueField(.mouseEventClickState) }, [1, 1, 2, 2], "explicit double-click remains intact")
+    }
+
     await runner.check("Text chunks never split a surrogate pair") {
         let emoji = String(repeating: "🙂", count: 30) // 60 UTF-16 units, 2 per scalar
         let chunks = InputOutput.textChunks(emoji)

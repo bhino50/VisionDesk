@@ -115,7 +115,7 @@ extension SessionCopy {
         case "Looking for Macs ready to pair.", "Looking for nearby Macs…", "Discovery stopped.":
             return DiscoveryGuidance(
                 title: "Looking for your Mac",
-                detail: "Start sharing in VisionDesk on your Mac, and keep both devices on the same network.",
+                detail: "Start sharing in VisionDesk on your Mac, and keep both devices on the same network. If the Mac is in VPN / address mode, choose Connect by Address here, or Use Same-Network Connection on the Mac.",
                 needsAttention: false)
         case "Discovery was interrupted. Searching again shortly.":
             return DiscoveryGuidance(

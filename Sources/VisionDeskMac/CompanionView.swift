@@ -40,7 +40,7 @@ struct CompanionView: View {
                             }
                         }
                         if model.remoteConfiguration.enabled {
-                            Text("Remote access uses your saved address, so this Mac does not appear in Nearby Macs.")
+                            Text("VPN / address mode is on. On Vision Pro, choose Connect by Address to use this Mac’s saved VPN address. To find this Mac in Nearby Macs instead, choose Use Same-Network Connection below.")
                                 .font(.callout).foregroundStyle(.secondary)
                             Button("Use Same-Network Connection") { model.useNearbyConnection() }
                         }

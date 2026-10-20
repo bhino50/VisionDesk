@@ -247,9 +247,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>9</string>
+				<string>10</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.1</string>
+				<string>0.5.2</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -312,9 +312,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>9</string>
+				<string>10</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.1</string>
+				<string>0.5.2</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -594,9 +594,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>9</string>
+				<string>10</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.1</string>
+				<string>0.5.2</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -659,9 +659,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>9</string>
+				<string>10</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.1</string>
+				<string>0.5.2</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -872,6 +872,24 @@
 			<key>fileRef</key>
 			<string>EADFE23D4C310C8EC7F4900B</string>
 		</dict>
+		<key>991D1DE1DD6E18639F89815C</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>VisionApp/Services/DisplayWindowActivity.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>C1AF94523F94557FD1F39425</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>991D1DE1DD6E18639F89815C</string>
+		</dict>
 		<key>C8C886726B0DC0A3735BC27C</key>
 		<dict>
 			<key>isa</key>
@@ -925,6 +943,24 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>9AE5002CC182639FCE4C144F</string>
+		</dict>
+		<key>D4DF1CB673FD8F8CFD9D6604</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>VisionApp/Services/KeyboardDelivery.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>2C587047A826816FB17B3436</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>D4DF1CB673FD8F8CFD9D6604</string>
 		</dict>
 		<key>3D19CA0981FCEF169D41B10B</key>
 		<dict>
@@ -1176,9 +1212,11 @@
 				<string>09309536036EC5F7B6A7CA09</string>
 				<string>F38F6A7FED13DEFF5E9D1423</string>
 				<string>EADFE23D4C310C8EC7F4900B</string>
+				<string>991D1DE1DD6E18639F89815C</string>
 				<string>C8C886726B0DC0A3735BC27C</string>
 				<string>B77EFB908D2DCAEF310D3527</string>
 				<string>9AE5002CC182639FCE4C144F</string>
+				<string>D4DF1CB673FD8F8CFD9D6604</string>
 				<string>3D19CA0981FCEF169D41B10B</string>
 				<string>14DB5EA686A92541EA80383E</string>
 				<string>64BC6CE1AD396BEAF52C47C2</string>
@@ -1213,9 +1251,11 @@
 				<string>E804DB0263787ACD48E314CE</string>
 				<string>FC6BCDDFD3523EE454E287D5</string>
 				<string>3FA2CCD5443CAF8717B18A79</string>
+				<string>C1AF94523F94557FD1F39425</string>
 				<string>3D5E6F904CD1606D327190C2</string>
 				<string>C54D69FA56C1E753C81F5EBE</string>
 				<string>AB841991A5EBD2FBC7574706</string>
+				<string>2C587047A826816FB17B3436</string>
 				<string>39868E720D6DF0CF8760DAAB</string>
 				<string>CC456AEBAC6D7BD2DCA6DB4D</string>
 				<string>F3B2BA14F6EA445F35B428C7</string>
@@ -1415,9 +1455,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>9</string>
+				<string>10</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.1</string>
+				<string>0.5.2</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -1477,9 +1517,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>9</string>
+				<string>10</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.1</string>
+				<string>0.5.2</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -1646,6 +1686,24 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>85ADEA6299417427466F5BCD</string>
+		</dict>
+		<key>00F5202866CDB8CBAC451DAB</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>VisionTests/DisplayWindowActivityTests.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>C9F1B27F1C7099DB5D73190A</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>00F5202866CDB8CBAC451DAB</string>
 		</dict>
 		<key>4FB8CCED094F414F310679AA</key>
 		<dict>
@@ -2056,6 +2114,7 @@
 				<string>6E1392A5A7CB14EB17E9FE8E</string>
 				<string>E960F60B3C3C41ABD9391058</string>
 				<string>85ADEA6299417427466F5BCD</string>
+				<string>00F5202866CDB8CBAC451DAB</string>
 				<string>4FB8CCED094F414F310679AA</string>
 				<string>B96E1119405C21A8E305BE7D</string>
 				<string>D54CD5AA46DDA81135034593</string>
@@ -2095,6 +2154,7 @@
 				<string>9ED1B0E56DE38AA40516CE88</string>
 				<string>7870563089EE4261ED911F86</string>
 				<string>66956372D14F3313EB6C453A</string>
+				<string>C9F1B27F1C7099DB5D73190A</string>
 				<string>C5C069EEF8C454341D375312</string>
 				<string>FD858AF863E8C644104012B2</string>
 				<string>0CC41C024287F057E34D1BC4</string>
@@ -2230,9 +2290,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>9</string>
+				<string>10</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.1</string>
+				<string>0.5.2</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -2291,9 +2351,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>9</string>
+				<string>10</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.1</string>
+				<string>0.5.2</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>

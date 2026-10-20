@@ -22,6 +22,7 @@ public final class DeskConnection {
     private var isReady = false
     private var isStopped = false
     private var deadline: DispatchWorkItem?
+    private var waitingFailure: String?
     private var frameDeadline: DispatchWorkItem?
     private var idleDeadline: DispatchWorkItem?
     private var idleGeneration: UInt64 = 0
@@ -74,7 +75,7 @@ public final class DeskConnection {
         let deadline = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
                 guard let self, !self.isReady else { return }
-                self.finish("Pairing timed out. Check the key and local network.")
+                self.finish(self.waitingFailure.map { "Connection attempt timed out. \($0)" } ?? "Pairing timed out. Check the key and local network.")
             }
         }
         self.deadline = deadline
@@ -196,6 +197,7 @@ public final class DeskConnection {
         guard !isStopped else { return }
         switch state {
         case .ready:
+            waitingFailure = nil
             guard !isReady else { return }
             guard SecureParameters.isAuthenticated(connection) else {
                 finish("The connection did not negotiate the required security.")
@@ -206,12 +208,18 @@ public final class DeskConnection {
             deadline = nil
             publish(.ready)
             if !isStopped { receiveHeader() }
-        case .failed:
-            finish("Secure pairing failed. Check the pairing key and local network.")
+        case .failed(let error):
+            finish(ConnectionProblem(error).message)
         case .cancelled:
             finish("Disconnected.")
-        case .setup, .preparing, .waiting:
-            break // The bounded handshake deadline also covers unresolved or waiting connections.
+        case .waiting(let error):
+            // Keep waiting within the existing deadline, but retain the actual cause if
+            // the network never progresses. Do not turn a recoverable wait into a failure.
+            waitingFailure = ConnectionProblem(error).message
+        case .preparing:
+            waitingFailure = nil
+        case .setup:
+            break
         @unknown default:
             finish("The connection entered an unsupported state.")
         }
@@ -379,6 +387,7 @@ public final class DeskConnection {
         guard !isStopped else { return }
         isStopped = true
         isReady = false
+        waitingFailure = nil
         deadline?.cancel()
         deadline = nil
         frameDeadline?.cancel()
@@ -399,5 +408,51 @@ public final class DeskConnection {
         onMessage = nil
         observer?(.disconnected(reason))
         callback?(.disconnected(reason))
+    }
+}
+
+/// Fixed, privacy-safe guidance for a failed connection. A TLS failure alone does not prove
+/// that the saved key is wrong; it can also reflect an interrupted security handshake.
+enum ConnectionProblem: Equatable {
+    case nameResolution, refused, networkUnavailable, timedOut, localNetworkDenied, notPermitted
+    case secureHandshake, other
+
+    init(_ error: NWError) {
+        switch error {
+        case .dns(ListenerProblem.dnsPolicyDenied): self = .localNetworkDenied
+        case .dns: self = .nameResolution
+        case .posix(let code):
+            switch code {
+            case .ECONNREFUSED: self = .refused
+            case .ENETDOWN, .ENETUNREACH, .EHOSTDOWN, .EHOSTUNREACH, .ENETRESET:
+                self = .networkUnavailable
+            case .ETIMEDOUT: self = .timedOut
+            case .EACCES, .EPERM: self = .notPermitted
+            default: self = .other
+            }
+        case .tls: self = .secureHandshake
+        @unknown default: self = .other
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .nameResolution:
+            return "Could not find this Mac's network address. Refresh Nearby Macs, or check the saved address and VPN connection."
+        case .refused:
+            return "The Mac is not accepting connections. Open VisionDesk on the Mac and start sharing, then try again."
+        case .networkUnavailable:
+            return "The Mac's network is unreachable. Connect both devices to the same network or your private VPN, then try again."
+        case .timedOut:
+            return "The Mac did not respond in time. Check that it is awake, sharing, and reachable on your network or private VPN."
+        case .localNetworkDenied:
+            return "Local network access is denied. Allow VisionDesk in Settings → Privacy & Security → Local Network, then try again."
+        case .notPermitted:
+            return "The system blocked the network connection. Check VisionDesk's Local Network permission and your firewall or VPN policy."
+        case .secureHandshake:
+            return "The secure connection could not be established. Check that both apps are up to date and use the same pairing key, then try again."
+        case .other:
+            return "The connection failed. Check that the Mac is awake and sharing and that both devices can reach each other, then try again."
+        }
     }
 }

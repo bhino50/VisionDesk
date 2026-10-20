@@ -374,7 +374,7 @@ final class DeskConnectionTests: XCTestCase {
         client.start()
         try await waitUntil { reason != nil }
         XCTAssertFalse(ready)
-        XCTAssertTrue(reason?.contains("timed out") == true)
+        XCTAssertTrue(reason?.contains("timed out") == true, reason ?? "No reason")
     }
 
     func testStoppingFromAuthenticationStatusCannotDeliverObsoleteConnection() async throws {

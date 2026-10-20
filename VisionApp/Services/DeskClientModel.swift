@@ -24,6 +24,8 @@ final class DeskClientModel: ObservableObject {
     @Published private(set) var retryExhausted = false
     @Published private(set) var discoveryStatus = "Looking for nearby Macs…"
     @Published private(set) var connectionMessage: String?
+    /// Retained across automatic attempts so backoff copy never hides the transport failure.
+    @Published private(set) var lastConnectionFailure: String?
     @Published private(set) var pairingPersistenceWarning: String?
     @Published private(set) var connectedName = ""
     @Published private(set) var isConnecting = false
@@ -332,6 +334,7 @@ final class DeskClientModel: ObservableObject {
             return
         }
         pairingPersistenceWarning = nil
+        lastConnectionFailure = nil
         reconnectAttempt = 0
         retryExhausted = false
         monitor.resetAutomaticRecoveries()
@@ -358,6 +361,7 @@ final class DeskClientModel: ObservableObject {
             connectionMessage = "There is no saved pairing key for \(remembered.name) on this Vision Pro. \(SessionCopy.forgetSavedMacAdvice)"
             return
         }
+        lastConnectionFailure = nil
         reconnectAttempt = 0
         retryExhausted = false
         monitor.resetAutomaticRecoveries()
@@ -405,6 +409,7 @@ final class DeskClientModel: ObservableObject {
             return
         }
         preferences.clear()
+        lastConnectionFailure = nil
         rememberedMac = nil
         pairingPersistenceWarning = nil
         connectionMessage = "Forgot \(name). Its pairing key was removed from this Vision Pro."
@@ -423,6 +428,7 @@ final class DeskClientModel: ObservableObject {
     func connect(to endpoint: NWEndpoint, key: PairingKey, name: String) {
         guard hasActiveWindow, !isLinked, !isConnecting else { return }
         pairingPersistenceWarning = nil
+        lastConnectionFailure = nil
         let target = MacRoute(endpoint).map {
             RetryTarget(route: $0, name: name, key: key, origin: .nearby, shouldRemember: false)
         }
@@ -453,6 +459,7 @@ final class DeskClientModel: ObservableObject {
             case .connecting:
                 self.isConnecting = true
             case .ready:
+                self.lastConnectionFailure = nil
                 self.isConnecting = false
                 self.isLinked = true
                 self.pairingCode = ""
@@ -486,6 +493,7 @@ final class DeskClientModel: ObservableObject {
     /// The explicit action. Clears automatic reconnection, so a Mac the owner hung
     /// up on — or a window that went to the background — never comes back by itself.
     func disconnect(message: String? = nil) {
+        lastConnectionFailure = nil
         backgroundDisconnectTask?.cancel()
         backgroundDisconnectTask = nil
         cancelRetry()
@@ -582,6 +590,7 @@ final class DeskClientModel: ObservableObject {
     /// pause its control grant, so the reconnection would come back viewing only. A Stop the
     /// wearer did press is not lost here either: it is pending on `stoppedRoutes`.
     private func handleDrop(reason: String) {
+        lastConnectionFailure = reason
         let target = retry
         let wasEstablished = isLinked
         tearDown(message: reason, notifiesMac: false, keepsPairingCode: !wasEstablished)

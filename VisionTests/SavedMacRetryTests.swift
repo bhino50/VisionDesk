@@ -38,6 +38,8 @@ final class SavedMacRetryTests: XCTestCase {
         // Nothing listens yet, so the transport's handshake deadline ends the first attempt.
         try await Loopback.waitUntil(timeout: 20) { model.reconnectAttempt == 1 && !model.isConnecting }
         XCTAssertEqual(log.channels.count, 1)
+        let failure = try XCTUnwrap(model.lastConnectionFailure)
+        XCTAssertFalse(failure.isEmpty)
         XCTAssertFalse(model.isLinked)
         XCTAssertTrue(model.isReconnecting)
         XCTAssertEqual(model.connectionMessage, "Couldn't reach 127.0.0.1 yet. Trying again in 1s (attempt 1 of 5).")
@@ -51,6 +53,7 @@ final class SavedMacRetryTests: XCTestCase {
         model.updateScene(scene, phase: .active)
         XCTAssertTrue(model.isReconnecting, "Coming back resumes the same schedule.")
         XCTAssertEqual(model.reconnectAttempt, 2)
+        XCTAssertEqual(model.lastConnectionFailure, failure, "Foregrounding and scheduling must preserve the actual failure.")
         XCTAssertEqual(model.connectionMessage, "Couldn't reach 127.0.0.1 yet. Trying again in 2s (attempt 2 of 5).")
 
         try mac.start(allowReconnect: true, port: port)
@@ -58,6 +61,7 @@ final class SavedMacRetryTests: XCTestCase {
         try await Loopback.waitUntil(timeout: 20) { model.isLinked && mac.isConnected }
         XCTAssertEqual(log.channels.count, 2)
         XCTAssertEqual(mac.sessionCount, 1)
+        XCTAssertNil(model.lastConnectionFailure, "A successful authenticated connection clears stale failure advice.")
         XCTAssertEqual(model.reconnectAttempt, 0)
         XCTAssertFalse(model.isReconnecting)
         XCTAssertEqual(keychain.writeCount, writes, "Connecting with the stored key rewrites nothing.")
@@ -85,6 +89,7 @@ final class SavedMacRetryTests: XCTestCase {
         XCTAssertEqual(log.channels.count, 6)
         XCTAssertEqual(model.reconnectAttempt, 5)
         let gaveUp = model.connectionMessage
+        XCTAssertNotNil(model.lastConnectionFailure, "Exhaustion must retain the last transport failure.")
         model.updateScene(other, phase: .active)
         model.updateScene(other, phase: .inactive)
         model.updateScene(other, phase: nil)
@@ -99,6 +104,7 @@ final class SavedMacRetryTests: XCTestCase {
         try await Loopback.waitUntil { log.channels.count > 6 }
         model.disconnect()
         XCTAssertFalse(model.retryExhausted)
+        XCTAssertNil(model.lastConnectionFailure, "Explicit cancellation clears stale failure advice.")
     }
 
     // MARK: Helpers

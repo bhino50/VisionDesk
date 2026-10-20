@@ -158,8 +158,9 @@ final class ClientRecoveryTests: XCTestCase {
         // A wrong key ends the handshake one of these two ways, and the message says what that
         // means in the headset's words — never the transport's — with advice for the route taken.
         // Matching the real reasons exactly is also what notices the transport rewording them.
+        let secureFailure = "The secure connection could not be established. Check that both apps are up to date and use the same pairing key, then try again."
         let wrongKeyReasons = ["Pairing timed out. Check the key and local network.",
-                               "Secure pairing failed. Check the pairing key and local network."]
+                               secureFailure, "Connection attempt timed out. \(secureFailure)"]
         let addressMessage = try XCTUnwrap(addressModel.connectionMessage)
         XCTAssertTrue(wrongKeyReasons.map { SessionCopy.couldNotConnect(to: "127.0.0.1", reason: $0, route: .address) }
             .contains(addressMessage), addressMessage)

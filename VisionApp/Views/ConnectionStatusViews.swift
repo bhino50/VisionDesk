@@ -57,6 +57,11 @@ struct ConnectionDetailsPanel: View {
             } else if model.reconnectAttempt > 0 {
                 LabeledContent("Reconnect attempt", value: "\(model.reconnectAttempt) of \(DeskClientModel.reconnectDelays.count)")
             }
+            if let failure = model.lastConnectionFailure {
+                Label(failure, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             ForEach(Array(model.displays.enumerated()), id: \.element.id) { index, stream in
                 StreamConnectionDetails(stream: stream, number: index + 1)
             }
@@ -240,10 +245,16 @@ struct ConnectionStatusLine: View {
                         .foregroundStyle(.secondary)
                         .accessibilityHidden(true)
                 }
-                Text(text)
-                    .font(.subheadline)
-                    .foregroundStyle(isBusy ? Color.cyan : Color.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(text)
+                        .foregroundStyle(isBusy ? Color.cyan : Color.secondary)
+                    if let failure = model.lastConnectionFailure,
+                       !text.contains(failure) {
+                        Text(failure).foregroundStyle(.orange)
+                    }
+                }
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
             .accessibilityElement(children: .combine)

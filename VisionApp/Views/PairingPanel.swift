@@ -100,6 +100,16 @@ private struct SavedMacPanel: View {
                 Text("Saved on this Vision Pro, so it connects without a pairing key.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if model.lastConnectionFailure != nil {
+                    Button("Pair Again…") {
+                        model.disconnect()
+                        pairAnotherMac()
+                    }
+                    Text("Use the Mac’s current pairing key or network address. Your saved pairing stays until a new connection succeeds.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         } actions: {
             Menu {

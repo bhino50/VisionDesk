@@ -60,6 +60,7 @@ final class DisplayStream: ObservableObject, Identifiable {
     /// Decoding a backlog only shows the user the past. The queue stays short, and overflowing
     /// it resynchronizes on the next keyframe instead of catching up through stale pictures.
     static let maximumPendingVideoFrames = 4
+    static let freshnessInterval: TimeInterval = 2.5
     static let maximumNativeWorkers = NativeDecodeSlot.capacity
 
     let id: UInt32
@@ -113,7 +114,14 @@ final class DisplayStream: ObservableObject, Identifiable {
 
     func isFresh(at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
         guard image != nil, let receivedAt, !usesVideo || !sequencer.isAwaitingKeyframe else { return false }
-        return uptime - receivedAt < 2.5
+        return uptime - receivedAt < Self.freshnessInterval
+    }
+
+    /// Recover an individually stalled screen without reconnecting the other displays.
+    /// Requesting recovery does not make its old picture fresh or enable input.
+    func requestRefreshIfStalled(at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        guard usesVideo, !isFresh(at: uptime) else { return }
+        onKeyframeNeeded?()
     }
 
     func accept(jpeg: Data) {
@@ -277,7 +285,7 @@ final class DisplayStream: ObservableObject, Identifiable {
                     }.value
                     guard self.epoch == currentEpoch else { continue }
                     guard let decoded else {
-                        self.resetPipelines()
+                        self.resetPipelines(keepLastPicture: true)
                         self.sequencer.requireKeyframe()
                         self.decodeWarning = "A frame could not be displayed."
                         self.requireKeyframe()

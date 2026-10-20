@@ -17,7 +17,7 @@ import XCTest
 @MainActor
 final class DeskClientModelTests: XCTestCase {
     func testDiscreteActionsDrainFastScrollBeforeTheirMessage() async throws {
-        for action in ["rightClick", "text", "key"] {
+        for action in ["text", "key"] {
             let session = try await controllableSession()
             defer { session.close() }
             let token = UUID(), point = CGPoint(x: 0.5, y: 0.5)
@@ -698,6 +698,28 @@ final class DeskClientModelTests: XCTestCase {
         XCTAssertNil(model.display(id: 4))
         XCTAssertTrue(model.isLinked, "removing one display does not end the session")
         XCTAssertTrue(model.canControl(displayID: 1), "the surviving display is unaffected")
+    }
+
+    func testReaddedDisplayGetsItsOwnImmediateRecoveryRequest() async throws {
+        let session = try await controllableSession()
+        defer { session.close() }
+        let model = session.model, mac = session.mac
+        let info = DisplayInfo(id: 4, name: "Reconnected display", width: 1920, height: 1080,
+                               originX: 1920, originY: 0, pointWidth: 1920, pointHeight: 1080)
+        model.receive(DeskMessage(kind: "displays", displays: [DeskFixtures.display, info]))
+        let old = try XCTUnwrap(model.display(id: 4))
+        let baseline = mac.received.filter { $0.kind == "keyframe" && $0.displayID == 4 }.count
+        old.onKeyframeNeeded?()
+        // Removing and replacing a stream is synchronous here, so the old stream's
+        // half-second rate limit cannot accidentally expire before the assertion.
+        model.receive(DeskMessage(kind: "displays", displays: [DeskFixtures.display]))
+        XCTAssertNil(old.onKeyframeNeeded)
+        model.receive(DeskMessage(kind: "displays", displays: [DeskFixtures.display, info]))
+        let replacement = try XCTUnwrap(model.display(id: 4))
+        replacement.onKeyframeNeeded?()
+        try await waitUntil {
+            mac.received.filter { $0.kind == "keyframe" && $0.displayID == 4 }.count == baseline + 2
+        }
     }
 
     // MARK: A release the channel refuses

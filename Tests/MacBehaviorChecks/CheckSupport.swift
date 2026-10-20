@@ -88,7 +88,7 @@ let checkRemoteConfiguration = RemoteHostConfiguration(enabled: true, address: "
 
 /// The interface addresses a check's model sees: loopback and every Tailscale address the checks
 /// configure, so no check depends on whether this Mac has Tailscale connected.
-func checkLocalAddresses() -> [String] { ["127.0.0.1", "100.64.0.1", "100.64.0.10"] }
+func checkLocalAddresses() -> [String] { ["127.0.0.1", "100.64.0.1", "100.64.0.77"] }
 
 /// Remote access storage in memory. A check's model loads, saves and forgets its pairing key and
 /// saves its preferences here, so no check reads or writes the login Keychain or user defaults.

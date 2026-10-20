@@ -7,6 +7,7 @@ import argparse
 import getpass
 import hashlib
 import json
+import os
 import ipaddress
 from pathlib import Path, PurePosixPath
 import plistlib
@@ -105,6 +106,20 @@ def detectors(host_addresses: set[str] | None = None) -> list[tuple[str, re.Patt
     for address in sorted(current_host_ipv4_addresses() if host_addresses is None else host_addresses):
         patterns.append(("current-host-ipv4", re.compile(
             rb"(?<![0-9.])" + re.escape(address.encode("ascii")) + rb"(?![0-9.])")))
+    denylist_path = os.environ.get("VISION_DESK_PRIVACY_DENYLIST")
+    if denylist_path:
+        try:
+            values = json.loads(Path(denylist_path).read_text())
+            if not isinstance(values, list) or not values or any(
+                not isinstance(value, str) or not value.strip() for value in values
+            ):
+                raise ValueError("Invalid denylist")
+        except (OSError, ValueError, TypeError):
+            raise RuntimeError("Private publication denylist is unreadable or invalid.") from None
+        for value in values:
+            for encoding in ("utf-8", "utf-16-le", "utf-16-be"):
+                patterns.append(("private-publication-identifier", re.compile(
+                    re.escape(value.encode(encoding)), re.IGNORECASE)))
     return patterns
 
 

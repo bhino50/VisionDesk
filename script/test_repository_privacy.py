@@ -52,6 +52,21 @@ class RepositoryPrivacyTests(unittest.TestCase):
             self.assertTrue(any(i["category"] == "api-token-signature" for i in result["issues"]))
             self.assertFalse(any(i["location"] == "README.md" for i in result["issues"]))
 
+    def test_commit_message_is_inspected_even_when_files_are_clean(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository.git(root, "init")
+            repository.git(root, "config", "user.name", "Fixture")
+            repository.git(root, "config", "user.email", "fixture@example.invalid")
+            (root / "README.md").write_text("Clean fixture")
+            repository.git(root, "add", "README.md")
+            repository.git(root, "commit", "-m", "github_" + "pat_" + "Z" * 50)
+            with patch.object(privacy, "detectors", return_value=privacy.detectors(set())):
+                result = repository.inspect(root)
+            self.assertFalse(result["passed"])
+            self.assertTrue(any(i["location"].endswith(":commit-metadata")
+                                and i["category"] == "api-token-signature" for i in result["issues"]))
+
     def test_unexpected_tracked_file_fails_even_when_ignored(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

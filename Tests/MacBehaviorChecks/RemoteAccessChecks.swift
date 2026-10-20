@@ -36,19 +36,19 @@ func runRemoteAccessChecks(_ runner: CheckRunner) async {
         var prepared = 0
         let model = host(storage, .disabled, addresses: { addresses }, keepAwake: KeepAwakeRecorder().hold,
                          prepare: { prepared += 1; throw CheckError.preparationAbandoned })
-        runner.expectEqual(model.configureRemoteAccess(address: "100.64.0.10", allowControl: true, keepAwake: true), .refused,
+        runner.expectEqual(model.configureRemoteAccess(address: "100.64.0.77", allowControl: true, keepAwake: true), .refused,
                            "an address this Mac does not have is refused")
         runner.expectEqual(model.remoteFeedback?.message,
-                           "100.64.0.10 isn't on this Mac right now. Make sure Tailscale is connected on this Mac, then try again.",
+                           "100.64.0.77 isn't on this Mac right now. Make sure Tailscale is connected on this Mac, then try again.",
                            "the owner is told what to check")
-        addresses.append("100.64.0.10")
+        addresses.append("100.64.0.77")
         runner.expectEqual(model.configureRemoteAccess(address: "100.120.30.29", allowControl: true, keepAwake: true), .refused,
                            "another device's address is refused")
-        runner.expectEqual(model.remoteFeedback?.fix, .useAddress("100.64.0.10"), "with this Mac's own address on offer")
+        runner.expectEqual(model.remoteFeedback?.fix, .useAddress("100.64.0.77"), "with this Mac's own address on offer")
         runner.expectEqual(model.configureRemoteAccess(address: "192.168.1.20", allowControl: true, keepAwake: true), .refused,
                            "an address outside Tailscale is refused")
-        runner.expectEqual(model.remoteFeedback?.fix, .useAddress("100.64.0.10"), "with the same way out")
-        runner.expectEqual(model.suggestedRemoteAddress, "100.64.0.10", "which the panel also fills in by itself")
+        runner.expectEqual(model.remoteFeedback?.fix, .useAddress("100.64.0.77"), "with the same way out")
+        runner.expectEqual(model.suggestedRemoteAddress, "100.64.0.77", "which the panel also fills in by itself")
         runner.expect(storage.keySaves == 0 && storage.savedConfigurations.isEmpty, "no key or preference was saved")
         runner.expect(!model.remoteConfiguration.enabled && !model.busy && !model.restartPending && prepared == 0, "and nothing started")
         model.stop()
@@ -59,11 +59,11 @@ func runRemoteAccessChecks(_ runner: CheckRunner) async {
         let gate = PreparationGate()
         let model = host(storage, .disabled, keepAwake: KeepAwakeRecorder().hold,
                          prepare: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned })
-        runner.expectEqual(model.configureRemoteAccess(address: "100.64.0.10", allowControl: false, keepAwake: true), .restarted,
+        runner.expectEqual(model.configureRemoteAccess(address: "100.64.0.77", allowControl: false, keepAwake: true), .restarted,
                            "remote access turns on")
         runner.expectEqual(storage.keySaves, 1, "one new key is saved")
         runner.expectEqual(storage.savedConfigurations,
-                           [RemoteHostConfiguration(enabled: true, address: "100.64.0.10:58271", allowControl: false, keepAwake: true)],
+                           [RemoteHostConfiguration(enabled: true, address: "100.64.0.77:58271", allowControl: false, keepAwake: true)],
                            "and the preferences, once")
         runner.expect(model.busy, "sharing starts")
         runner.expect(!model.pairingKey.isEmpty && model.pairingKey == storage.key?.displayValue, "the new key is on screen for the first pairing")
@@ -287,8 +287,8 @@ func runRemoteAccessChecks(_ runner: CheckRunner) async {
         let addresses = LocalNetworkAddresses.ipv4()
         runner.expect(addresses.contains("127.0.0.1"), "loopback is always listed")
         runner.expect(addresses.allSatisfy { RemoteMacAddress(host: $0)?.host == $0 && !$0.contains(":") }, "each as a plain IPv4 address")
-        runner.expectEqual(LocalNetworkAddresses.tailnet(["127.0.0.1", "100.64.0.10", "100.64.0.1", "100.128.0.1", "10.0.0.2", "100.64.0.10"]),
-                           ["100.64.0.1", "100.64.0.10"], "only Tailscale's range, once each")
+        runner.expectEqual(LocalNetworkAddresses.tailnet(["127.0.0.1", "100.64.0.77", "100.64.0.1", "100.128.0.1", "10.0.0.2", "100.64.0.77"]),
+                           ["100.64.0.77", "100.64.0.1"], "only Tailscale's range, once each")
         print("      this Mac lists \(LocalNetworkAddresses.tailnet(addresses).count) Tailscale address(es) right now")
     }
 }

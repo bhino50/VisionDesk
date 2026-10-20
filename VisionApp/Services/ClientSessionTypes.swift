@@ -172,18 +172,20 @@ final class UserDefaultsRememberedMacStore: RememberedMacStore {
 }
 
 enum ScreenInteractionMode: String, CaseIterable, Identifiable {
+    case direct
     case pointer
     case interact
     case scroll
     var id: Self { self }
     var title: String {
-        switch self { case .pointer: return "Pointer"; case .interact: return "Drag"; case .scroll: return "Scroll" }
+        switch self { case .direct: return "Point & Click"; case .pointer: return "Trackpad"; case .interact: return "Drag"; case .scroll: return "Scroll" }
     }
     var symbol: String {
-        switch self { case .pointer: return "cursorarrow"; case .interact: return "hand.draw"; case .scroll: return "arrow.up.and.down" }
+        switch self { case .direct: return "hand.point.up.left"; case .pointer: return "cursorarrow"; case .interact: return "hand.draw"; case .scroll: return "arrow.up.and.down" }
     }
     var instruction: String {
         switch self {
+        case .direct: return "Look at a target and tap to click. Pinch and move to drag it. Use Scroll to move through a page."
         case .pointer: return "Pinch and move to position the pointer, then tap to click at the pointer. Choose Drag to select or move items."
         case .interact: return "Pinch and move to drag with the Mac’s left button held."
         case .scroll: return "Pinch and move to scroll."

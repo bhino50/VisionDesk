@@ -44,6 +44,48 @@ func runSecurityBoundaryChecks(_ runner: CheckRunner) async {
         }
     }
 
+    await runner.check("Remote address edits retain both Stop decisions") {
+        for peerStop in [false, true] {
+            let gate = PreparationGate()
+            let key = PairingKey.generate()
+            var saved = RemoteHostConfiguration.disabled
+            let original = RemoteHostConfiguration(enabled: true, address: "100.64.0.1:58271", allowControl: true,
+                                                   keepAwake: false, ownerPaused: !peerStop, peerPaused: peerStop)
+            let host = CompanionModel(remoteConfiguration: original, localAddresses: { ["100.64.0.1", "100.64.0.2"] },
+                loadRemoteKey: { key }, saveRemoteConfiguration: { saved = $0 },
+                contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
+                inventory: { [syntheticDisplay(1)] },
+                liveSession: { HostSessionObservation(onConsole: true, screenLocked: false, displaysAsleep: false) },
+                keepAwake: KeepAwakeRecorder().hold, screenCaptureAccess: { true }, controlAccess: controlAccess(true))
+            runner.expectEqual(host.configureRemoteAccess(address: "100.64.0.2", allowControl: true, keepAwake: false), .restarted,
+                               "address edit uses the legitimate owner configuration flow")
+            runner.expect(saved.ownerPaused == !peerStop && saved.peerPaused == peerStop,
+                          "moving the listener cannot renew revoked input consent")
+            host.attach(DeskConnection(endpoint: .hostPort(host: "127.0.0.1", port: 1), key: key))
+            host.receive(DeskMessage(kind: "heartbeat"))
+            runner.expect(!host.controlEnabled, "reconnecting to the new address stays view only")
+            host.stop(); gate.release()
+        }
+    }
+
+    await runner.check("Disabling remote mode restores the nearby host's saved Stop decisions") {
+        for peerStop in [false, true] {
+            let lan = LANHostConfiguration(enabled: true, allowControl: true, ownerPaused: !peerStop, peerPaused: peerStop)
+            let host = CompanionModel(lanConfiguration: lan, saveLANConfiguration: { _ in },
+                remoteConfiguration: checkRemoteConfiguration, deleteRemoteKey: {}, saveRemoteConfiguration: { _ in },
+                inventory: { [syntheticDisplay(1)] },
+                liveSession: { HostSessionObservation(onConsole: true, screenLocked: false, displaysAsleep: false) },
+                keepAwake: KeepAwakeRecorder().hold, screenCaptureAccess: { true }, controlAccess: controlAccess(true))
+            host.disableRemoteAccess()
+            runner.expect(!host.remoteConfiguration.enabled, "the remote host is disabled")
+            host.sharing = true
+            host.attach(DeskConnection(endpoint: .hostPort(host: "127.0.0.1", port: 1), key: PairingKey.generate()))
+            host.receive(DeskMessage(kind: "heartbeat"))
+            runner.expect(!host.controlEnabled, "nearby reconnect cannot inherit remote consent after either nearby Stop")
+            host.stop()
+        }
+    }
+
     await runner.check("Generated event budget bounds maximum text bursts and always permits drag release") {
         var events: [CGEvent] = []
         var now = 10.0

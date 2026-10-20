@@ -32,3 +32,16 @@ final class OrderedVideoDelivery: @unchecked Sendable {
         deliver(frames, losses)
     }
 }
+
+/// A transport refusal breaks this display's reference chain. Keep predicted frames off the
+/// wire until a replacement keyframe was actually accepted, independently for every screen.
+struct VideoSendRecovery {
+    private var needsKeyframe = Set<UInt32>()
+
+    mutating func requireKeyframes(for displays: [UInt32]) { needsKeyframe.formUnion(displays) }
+    func allows(id: UInt32, isKeyframe: Bool) -> Bool { isKeyframe || !needsKeyframe.contains(id) }
+    mutating func record(id: UInt32, isKeyframe: Bool, sent: Bool) {
+        if !sent { needsKeyframe.insert(id) }
+        else if isKeyframe { needsKeyframe.remove(id) }
+    }
+}

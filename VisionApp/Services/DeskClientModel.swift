@@ -59,6 +59,7 @@ final class DeskClientModel: ObservableObject {
     private var connection: DeskConnection?
     private var connectionID: UUID?
     private var heartbeatTask: Task<Void, Never>?
+    private var backgroundDisconnectTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
     private var retry: RetryTarget?
     private var isBrowsing = false
@@ -69,6 +70,7 @@ final class DeskClientModel: ObservableObject {
     /// Gestures, clicks and typing. Gated by this model and sending only through it. Internal
     /// only so the entry points in `DeskClientModel+Input.swift` can forward to it.
     let pointer = PointerInput()
+    let dockLauncher: MacDockLauncherModel
     /// Inbound silence for the current session; see `checkMacResponsiveness`.
     private var monitor: LinkMonitor
     /// How the current or most recent session reached its Mac. See `MacRoute`.
@@ -98,8 +100,10 @@ final class DeskClientModel: ObservableObject {
          preferences: any RememberedMacStore = UserDefaultsRememberedMacStore(),
          linkPolicy: LinkMonitor.Policy = .standard,
          retryDelays: [UInt64] = DeskClientModel.reconnectDelays,
+         dockLaunchTimeoutNanoseconds: UInt64 = 10_000_000_000,
          makeConnection: @escaping @MainActor (NWEndpoint, PairingKey) -> DeskConnection
             = { DeskConnection(endpoint: $0, key: $1) }) {
+        self.dockLauncher = MacDockLauncherModel(timeoutNanoseconds: dockLaunchTimeoutNanoseconds)
         self.retryDelays = retryDelays
         self.keys = keys
         self.preferences = preferences
@@ -107,6 +111,17 @@ final class DeskClientModel: ObservableObject {
         self.makeConnection = makeConnection
         // Every gate the input pipeline applies is this model's, and its only way to the Mac is
         // this model's send, so a failed send is handled exactly once, here.
+        dockLauncher.canLaunch = { [weak self] in
+            guard let self else { return false }
+            return self.canControl && self.isMacResponsive
+        }
+        dockLauncher.canRefresh = { [weak self] in
+            guard let self else { return false }
+            return self.hasActiveWindow && self.isLinked && self.isMacResponsive
+        }
+        dockLauncher.send = { [weak self] in self?.send($0) ?? false }
+        dockLauncher.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+            .store(in: &subscriptions)
         pointer.canControl = { [weak self] id in self?.canControl(displayID: id) ?? false }
         pointer.isLinked = { [weak self] in self?.isLinked ?? false }
         pointer.send = { [weak self] message in self?.send(message) ?? false }
@@ -157,6 +172,23 @@ final class DeskClientModel: ObservableObject {
         hasActiveWindow && isLinked && isMacControlEnabled && !stopAwaitingAcknowledgement
     }
 
+    var dockApps: [DockAppInfo] { dockLauncher.apps }
+
+    var canLaunchDockApps: Bool {
+        dockLauncher.isAvailable && !dockLauncher.isLaunching && canControl && isMacResponsive
+    }
+
+    func refreshDockApps() { dockLauncher.refresh() }
+
+    func launchDockApp(id: String, displayID: UInt32? = nil) {
+        guard canLaunchDockApps else { return }
+        if displayID != nil, !dockLauncher.supportsPlacement { return }
+        if let displayID, display(id: displayID) == nil { return }
+        // Switching the focused Mac app cannot leave a remote drag held in the old app.
+        pointer.releaseGesture()
+        dockLauncher.launch(appID: id, displayID: displayID)
+    }
+
     func display(id: UInt32) -> DisplayStream? {
         displays.first { $0.id == id }
     }
@@ -174,8 +206,12 @@ final class DeskClientModel: ObservableObject {
     /// Whether a click — a Pointer tap, the toolbar's buttons, an assistive action — would be
     /// accepted on this display right now. Every click lands where the pointer already is, so
     /// a display whose pointer has not been placed has nowhere honest to click.
+    func canPlacePointer(displayID: UInt32) -> Bool {
+        canControl(displayID: displayID) && pointer.canPerformDiscreteAction
+    }
+
     func canClick(displayID: UInt32) -> Bool {
-        canControl(displayID: displayID) && hasPointerPosition(displayID: displayID)
+        canControl(displayID: displayID) && pointer.canPerformDiscreteAction && hasPointerPosition(displayID: displayID)
     }
 
     /// Whether `reconnectNow` would dial: a target worth retrying is still in memory — a Mac
@@ -214,6 +250,8 @@ final class DeskClientModel: ObservableObject {
     }
 
     func updateScene(_ id: UUID, phase: ScenePhase?) {
+        backgroundDisconnectTask?.cancel()
+        backgroundDisconnectTask = nil
         if let phase { scenePhases[id] = phase }
         else { scenePhases.removeValue(forKey: id) }
         let previouslyActive = hasActiveWindow
@@ -232,13 +270,24 @@ final class DeskClientModel: ObservableObject {
             // active, so only the held button has to be lifted. Latching control off here
             // would make a glance at the Home View require re-enabling control on the Mac.
             pointer.releaseGesture()
+            dockLauncher.controlBecameUnavailable()
             // Reconnection is foreground-only. The attempt counter survives, so
             // coming back resumes the same budget rather than starting over.
             cancelRetry()
         }
         if scenePhases.isEmpty || scenePhases.values.allSatisfy({ $0 == .background }) {
-            disconnect(message: "Connect again when you are ready.")
-            stopDiscovery()
+            // Scene removal and replacement are separate UIKit events. Let a new window
+            // claim the session before treating that transient gap as leaving the app.
+            // Input is already disabled and held gestures released above.
+            backgroundDisconnectTask = Task { @MainActor [weak self] in
+                do { try await Task.sleep(nanoseconds: 1_000_000_000) }
+                catch { return }
+                guard let self, !Task.isCancelled, !self.hasActiveWindow,
+                      self.scenePhases.isEmpty || self.scenePhases.values.allSatisfy({ $0 == .background }) else { return }
+                self.backgroundDisconnectTask = nil
+                self.disconnect(message: "Connect again when you are ready.")
+                self.stopDiscovery()
+            }
         }
     }
 
@@ -402,9 +451,10 @@ final class DeskClientModel: ObservableObject {
                 self.retryExhausted = false
                 // From here a drop is a lost link, which this target may come back from.
                 self.retry?.hasLinked = true
+                self.dockLauncher.beginSession(id)
                 self.monitor.linked(at: Self.now())
                 self.rememberIfRequested()
-                _ = self.connection?.send(DeskMessage(kind: "capabilities", videoCodec: DeskMessage.supportedVideoCodec))
+                _ = self.connection?.send(DeskMessage(kind: "capabilities", videoCodec: DeskMessage.supportedVideoCodec, dockLauncher: true))
                 self.replayStopIfPending()
                 // Either send above can fail and end this session from inside the call.
                 guard self.connectionID == id else { return }
@@ -426,6 +476,8 @@ final class DeskClientModel: ObservableObject {
     /// The explicit action. Clears automatic reconnection, so a Mac the owner hung
     /// up on — or a window that went to the background — never comes back by itself.
     func disconnect(message: String? = nil) {
+        backgroundDisconnectTask?.cancel()
+        backgroundDisconnectTask = nil
         cancelRetry()
         retry = nil
         reconnectAttempt = 0
@@ -443,6 +495,7 @@ final class DeskClientModel: ObservableObject {
     /// inside this call, or this process can end before the Stop leaves, and the next session
     /// with this Mac must still open by repeating it. See `stoppedRoutes`.
     func stopControl() {
+        dockLauncher.controlBecameUnavailable()
         if let sessionRoute, stoppedRoutes.insert(sessionRoute).inserted {
             preferences.saveStoppedRoutes(stoppedRoutes)
         }
@@ -610,6 +663,7 @@ final class DeskClientModel: ObservableObject {
         let channel = connection
         let wasLinked = isLinked
         connectionID = nil
+        dockLauncher.endSession()
         pointer.releaseGesture()
         if wasLinked, notifiesMac { _ = channel?.send(DeskMessage(kind: "stop")) }
         connection = nil
@@ -623,8 +677,12 @@ final class DeskClientModel: ObservableObject {
         isMacControlEnabled = false
         stopAwaitingAcknowledgement = false
         if !keepsPairingCode { pairingCode = "" }
-        displays.forEach { $0.clear() }
+        displays.forEach { stream in
+            stream.onKeyframeNeeded = nil
+            stream.clear()
+        }
         displays = []
+        lastKeyframeRequests.removeAll()
         pointer.forgetAllPositions()
         statusText = ""
         connectionMessage = message
@@ -646,6 +704,8 @@ final class DeskClientModel: ObservableObject {
         // `version == 1`, so this is not weaker than the explicit version check it replaces.
         guard isLinked, message.isValid else { return }
         switch message.kind {
+        case "apps", "appLaunchResult":
+            dockLauncher.receive(message)
         case "displays":
             guard let infos = message.displays else { return }
             applyDisplays(infos)
@@ -663,6 +723,7 @@ final class DeskClientModel: ObservableObject {
                 isMacControlEnabled = false
                 stopAwaitingAcknowledgement = false
                 pointer.releaseGesture()
+                dockLauncher.controlBecameUnavailable()
             } else if message.controlEnabled == true, !stopAwaitingAcknowledgement {
                 // Store the Mac's grant as given. `canControl` applies `hasActiveWindow`, so
                 // overwriting the grant with local focus state would only discard it and
@@ -702,6 +763,7 @@ final class DeskClientModel: ObservableObject {
             // display left to send one for. A stream being discarded has nothing to ask for.
             removed.onKeyframeNeeded = nil
             removed.clear()
+            lastKeyframeRequests[removed.id] = nil
             pointer.forgetPosition(displayID: removed.id)
         }
         var updates: [(stream: DisplayStream, info: DisplayInfo)] = []
@@ -758,6 +820,10 @@ final class DeskClientModel: ObservableObject {
                 }
                 // A recycled session belongs to its reconnection now, not to this loop.
                 guard self.checkMacResponsiveness() else { return }
+                for stream in self.displays {
+                    stream.requestRefreshIfStalled()
+                    guard self.isLinked else { return }
+                }
                 self.send(DeskMessage(kind: "heartbeat"))
                 do { try await Task.sleep(nanoseconds: 300_000_000) }
                 catch { return }
@@ -780,7 +846,10 @@ final class DeskClientModel: ObservableObject {
             if !isMacResponsive { isMacResponsive = true }
             return true
         case .quiet:
-            if isMacResponsive { isMacResponsive = false }
+            if isMacResponsive {
+                isMacResponsive = false
+                dockLauncher.controlBecameUnavailable()
+            }
             return true
         case .recover:
             handleDrop(reason: "\(SessionCopy.macName(retry?.name ?? connectedName)) stopped responding.")

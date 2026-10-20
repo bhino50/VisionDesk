@@ -203,6 +203,47 @@ final class RemoteKeyboardInputTests: XCTestCase {
         view.endInputSession()
     }
 
+    func testRefusedFocusCanRetryOnALaterKeyWindowEventWithoutPolling() async {
+        let recorder = Recorder(), view = FocusProbe()
+        let token = UUID()
+        view.acceptsFocus = false
+        configure(view, recorder: recorder, focusRequest: token)
+        await settleActor()
+        XCTAssertEqual(view.focusAttempts, 1)
+        XCTAssertFalse(view.hasResponder)
+        await settleActor()
+        XCTAssertEqual(view.focusAttempts, 1, "A refusal must not start a polling focus loop.")
+        view.acceptsFocus = true
+        NotificationCenter.default.post(name: UIWindow.didBecomeKeyNotification, object: view.probeWindow)
+        await settleActor()
+        XCTAssertEqual(view.focusAttempts, 2)
+        XCTAssertTrue(view.hasResponder)
+        configure(view, recorder: recorder, focusRequest: token)
+        await settleActor()
+        XCTAssertEqual(view.focusAttempts, 2, "Successful focus consumes this opening intent.")
+        view.endInputSession()
+    }
+
+    func testAvailabilityRecoveryRestoresOnlyAKeyboardItForcedToResign() async {
+        let recorder = Recorder(), view = FocusProbe()
+        let token = UUID()
+        configure(view, recorder: recorder, focusRequest: token)
+        await settleActor()
+        XCTAssertTrue(view.hasResponder)
+        configure(view, recorder: recorder, isEnabled: false, focusRequest: token)
+        XCTAssertFalse(view.hasResponder)
+        configure(view, recorder: recorder, focusRequest: token)
+        await settleActor()
+        XCTAssertTrue(view.hasResponder)
+        XCTAssertEqual(view.focusAttempts, 2, "Freshness recovery restores the interrupted keyboard.")
+        view.hasResponder = false // The wearer voluntarily dismissed it.
+        configure(view, recorder: recorder, isEnabled: false, focusRequest: token)
+        configure(view, recorder: recorder, focusRequest: token)
+        await settleActor()
+        XCTAssertEqual(view.focusAttempts, 2, "Recovery must not reopen a voluntarily dismissed keyboard.")
+        view.endInputSession()
+    }
+
     func testDisabledOrDismissedPopoverCancelsQueuedFocusAndResigns() async {
         let recorder = Recorder()
         let view = FocusProbe()
@@ -301,10 +342,12 @@ final class RemoteKeyboardInputTests: XCTestCase {
         var hasResponder = false
         var focusAttempts = 0
         var resignAttempts = 0
+        var acceptsFocus = true
         override var window: UIWindow? { probeWindow }
         override var isFirstResponder: Bool { hasResponder }
         override func becomeFirstResponder() -> Bool {
             focusAttempts += 1
+            guard acceptsFocus else { return false }
             hasResponder = true
             return true
         }

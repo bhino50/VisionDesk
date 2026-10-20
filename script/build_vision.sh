@@ -43,3 +43,11 @@ case "$MODE" in
             "DEVELOPMENT_TEAM=$VISION_DESK_TEAM_ID" build
         ;;
 esac
+
+# Validate target identities from the built artifact, not just project settings.
+case "$MODE" in
+    simulator) BUILT_APP="$ROOT_DIR/build/vision-simulator/Build/Products/Debug-xrsimulator/VisionDesk.app" ;;
+    device-unsigned) BUILT_APP="$ROOT_DIR/build/vision-device-unsigned/Build/Products/Debug-xros/VisionDesk.app" ;;
+    device) BUILT_APP="$ROOT_DIR/build/vision-device/Build/Products/Debug-xros/VisionDesk.app" ;;
+esac
+python3 "$ROOT_DIR/script/verify_app_bundle.py" "$BUILT_APP"

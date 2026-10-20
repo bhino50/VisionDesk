@@ -15,7 +15,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
                                              .accessDenied(errSecUserCanceled), .accessDenied(errSecAuthFailed)]
         var loads = Array(repeating: 0, count: errors.count)
         var models: [CompanionModel] = []
-        let configuration = RemoteHostConfiguration(enabled: true, address: "100.64.0.10:58271", allowControl: false, keepAwake: false)
+        let configuration = RemoteHostConfiguration(enabled: true, address: "100.64.0.77:58271", allowControl: false, keepAwake: false)
         for (index, error) in errors.enumerated() {
             let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: configuration, localAddresses: checkLocalAddresses, loadRemoteKey: {
                 loads[index] += 1; throw error
@@ -37,7 +37,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
     await runner.check("A transient Keychain failure retries before preparing capture") {
         var loads = 0, prepared = false
         let key = PairingKey.generate()
-        let configuration = RemoteHostConfiguration(enabled: true, address: "100.64.0.10:58271", allowControl: false, keepAwake: false)
+        let configuration = RemoteHostConfiguration(enabled: true, address: "100.64.0.77:58271", allowControl: false, keepAwake: false)
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: configuration, localAddresses: checkLocalAddresses, loadRemoteKey: {
             loads += 1
             if loads == 1 { throw CheckError.preparationAbandoned }
@@ -59,7 +59,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
     await runner.check("A missing remote pairing key stops before capture preparation") {
         var prepared = false
         var loads = 0
-        let configuration = RemoteHostConfiguration(enabled: true, address: "100.64.0.10:58271", allowControl: false, keepAwake: false)
+        let configuration = RemoteHostConfiguration(enabled: true, address: "100.64.0.77:58271", allowControl: false, keepAwake: false)
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: configuration, localAddresses: checkLocalAddresses, loadRemoteKey: { loads += 1; return nil }, contentProvider: {
             prepared = true
             throw CheckError.preparationAbandoned

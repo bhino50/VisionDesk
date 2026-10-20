@@ -46,6 +46,7 @@ PRODUCTION_SOURCES=(
     Sources/VisionDeskMac/LANHostSupport.swift
     Sources/VisionDeskMac/DisplayCapture.swift
     Sources/VisionDeskMac/H264Encoder.swift
+    Sources/VisionDeskMac/DockAppLauncher.swift
     Sources/VisionDeskMac/InputOutput.swift
     VisionApp/Services/DisplayGeometry.swift
 )

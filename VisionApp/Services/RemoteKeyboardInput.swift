@@ -110,6 +110,9 @@ class RemoteKeyboardTextView: UITextView, UITextViewDelegate {
         self.focusRequest = focusRequest
         self.onText = onText
         self.onKey = onKey
+        // UIKit may resign automatically when editability changes. Capture the active
+        // keyboard before that mutation so a forced interruption retains its intent.
+        let wasFirstResponder = isFirstResponder
         inputIsEnabled = isEnabled
         isEditable = isEnabled
         if isEnabled {
@@ -119,7 +122,12 @@ class RemoteKeyboardTextView: UITextView, UITextViewDelegate {
             pendingFocus = nil
             // Resigning can itself commit marked text. Disable routing before asking UIKit
             // to resign, and discard it rather than replay it if control becomes available.
-            if isFirstResponder { resignFirstResponder() }
+            if wasFirstResponder {
+                // This component interrupted an active keyboard, rather than the wearer
+                // dismissing it. Restore that intent when the live gate becomes available.
+                attemptedFocusRequest = nil
+                if isFirstResponder { resignFirstResponder() }
+            }
             cancelComposition()
         }
     }
@@ -171,8 +179,11 @@ class RemoteKeyboardTextView: UITextView, UITextViewDelegate {
             guard self.inputIsEnabled, !self.inputHasEnded,
                   self.focusRequest == request, self.window?.isKeyWindow == true,
                   self.attemptedFocusRequest != request else { return }
-            self.attemptedFocusRequest = request
-            if !self.isFirstResponder { self.becomeFirstResponder() }
+            // UIKit can refuse during presentation. Consume the intent only on success;
+            // a later configure/key-window event may retry, without a polling focus loop.
+            if self.isFirstResponder || self.becomeFirstResponder() {
+                self.attemptedFocusRequest = request
+            }
         }
     }
 

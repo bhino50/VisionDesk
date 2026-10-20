@@ -7,6 +7,7 @@ struct DisplayWindow: View {
     @ObservedObject var model: DeskClientModel
     let displayID: UInt32
     @Environment(\.openWindow) private var openWindow
+    @EnvironmentObject private var windows: DeskWindowRegistry
 
     var body: some View {
         Group {
@@ -38,10 +39,13 @@ struct DisplayWindow: View {
                     // While the screen is on its way back, waiting is the next step, so opening the
                     // overview is offered without being the one thing to do.
                     if placeholder.showsProgress {
-                        Button("Open VisionDesk") { openWindow(id: "desk") }
+                        Button("Open VisionDesk") { windows.open(.overview) { openWindow(id: "desk") } }
                     } else {
-                        Button("Open VisionDesk") { openWindow(id: "desk") }
+                        Button("Open VisionDesk") { windows.open(.overview) { openWindow(id: "desk") } }
                             .buttonStyle(.borderedProminent)
+                    }
+                    Button("Close this screen", systemImage: "xmark.rectangle") {
+                        windows.close(.display(displayID))
                     }
                 }
                 .multilineTextAlignment(.center)
@@ -60,19 +64,39 @@ private struct ConnectedDisplay: View {
     @ObservedObject var model: DeskClientModel
     @ObservedObject var stream: DisplayStream
     @Environment(\.openWindow) private var openWindow
-    @State private var mode: ScreenInteractionMode = .pointer
-    @State private var showingKeyboard = false
-    @State private var showingHelp = false
+    @EnvironmentObject private var windows: DeskWindowRegistry
+    @State private var mode: ScreenInteractionMode = .direct
+    private enum Accessory { case dock, keyboard, help, details }
+    @State private var accessory: Accessory?
     @State private var focusView = false
     @State private var gestureToken = UUID()
 
     var body: some View {
         VStack(spacing: focusView ? 8 : 14) {
             header
+            if let message = windows.message {
+                Text(message).font(.footnote).foregroundStyle(.orange)
+            }
 
-            DisplaySurface(model: model, stream: stream, mode: mode)
-                .id(gestureToken)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            HStack(alignment: .top, spacing: 14) {
+                DisplaySurface(model: model, stream: stream, mode: mode)
+                    .id(gestureToken)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let accessory {
+                    VStack(alignment: .trailing, spacing: 6) {
+                        Button("Done", systemImage: "xmark") { self.accessory = nil }
+                        ScrollView {
+                            switch accessory {
+                            case .dock: MacDockLauncher(model: model, defaultDisplayID: stream.id)
+                            case .keyboard: KeyboardPanel(model: model, displayID: stream.id)
+                            case .help: ScreenControlHelpPanel(mode: mode)
+                            case .details: ConnectionDetailsPanel(model: model)
+                            }
+                        }
+                    }
+                    .frame(width: 340)
+                }
+            }
 
             TimelineView(.periodic(from: .now, by: 0.5)) { _ in
                 HStack(spacing: 10) {
@@ -82,53 +106,39 @@ private struct ConnectedDisplay: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    .frame(width: 300)
+                    .frame(width: 350)
                     .disabled(!model.canControl(displayID: stream.id))
 
                     Spacer(minLength: 0)
-                    Button {
-                        model.placePointer(displayID: stream.id, at: CGPoint(x: 0.5, y: 0.5))
+                    Menu {
+                        Button("Left click", systemImage: "cursorarrow.click") {
+                            model.clickAtLastPointer(displayID: stream.id)
+                        }
+                        .disabled(!model.canClick(displayID: stream.id))
+                        Button("Right click") {
+                            model.click(displayID: stream.id, action: "rightClick")
+                        }
+                        .disabled(!model.canClick(displayID: stream.id))
+                        Button("Double click") {
+                            model.click(displayID: stream.id, action: "doubleClick")
+                        }
+                        .disabled(!model.canClick(displayID: stream.id))
+                        Divider()
+                        Button("Center pointer", systemImage: "scope") {
+                            model.placePointer(displayID: stream.id, at: CGPoint(x: 0.5, y: 0.5))
+                        }
+                        .disabled(!model.canPlacePointer(displayID: stream.id))
                     } label: {
-                        Image(systemName: "scope")
+                        Label("Mouse", systemImage: "computermouse")
                     }
-                    .disabled(!model.canControl(displayID: stream.id))
-                    .accessibilityLabel("Center pointer on this screen")
-                    .accessibilityHint("Places the Mac pointer at this screen’s center without clicking.")
-                    .help("Center pointer")
-                    Button {
-                        model.clickAtLastPointer(displayID: stream.id)
-                    } label: {
-                        Image(systemName: "cursorarrow.click")
-                    }
-                    .disabled(!model.canClick(displayID: stream.id))
-                    .accessibilityLabel("Left click")
-                    .accessibilityHint("Clicks at the last position you pointed to on this display.")
-                    .help("Left click")
-                    Button {
-                        model.click(displayID: stream.id, action: "rightClick")
-                    } label: {
-                        Image(systemName: "contextualmenu.and.cursorarrow")
-                    }
-                    .disabled(!model.canClick(displayID: stream.id))
-                    .accessibilityLabel("Right click")
-                    .accessibilityHint("Right-clicks at the last position you pointed to on this display.")
-                    .help("Right click")
-                    Button {
-                        model.click(displayID: stream.id, action: "doubleClick")
-                    } label: {
-                        Image(systemName: "cursorarrow.click.2")
-                    }
-                    .disabled(!model.canClick(displayID: stream.id))
-                    .accessibilityLabel("Double click")
-                    .accessibilityHint("Double-clicks at the last position you pointed to on this display.")
-                    .help("Double click")
+                    .accessibilityHint("Click actions use the last pointer position on this screen.")
                     if model.controlSummary.action == .requestControl {
                         Button("Request Control", action: model.resumeControl)
                             .disabled(!model.canResumeControl)
                             .accessibilityHint("Asks your Mac to allow input. Your Mac decides.")
                     } else {
                         Button(role: .destructive, action: model.stopControl) {
-                            Image(systemName: "stop.circle.fill")
+                            Text("Stop")
                         }
                         // A grant can always be stopped, even if this display has gone stale.
                         .disabled(!model.isMacControlEnabled)
@@ -152,6 +162,7 @@ private struct ConnectedDisplay: View {
             // cannot continue in the previous mode after the selection has changed.
             gestureToken = UUID()
         }
+        .onChange(of: accessory) { _, _ in gestureToken = UUID() }
         .onChange(of: focusView) { _, _ in
             // Resizing the visible surface ends any previous coordinate space's pinch.
             gestureToken = UUID()
@@ -181,45 +192,43 @@ private struct ConnectedDisplay: View {
                 Button("Reconnect", action: model.reconnectNow)
                     .accessibilityHint("Dials your Mac again with the key this session already verified.")
             }
-            Button { showingKeyboard.toggle() } label: {
-                Image(systemName: "keyboard")
+            if model.dockLauncher.isAvailable {
+                Button("Dock", systemImage: "dock.rectangle") {
+                    accessory = accessory == .dock ? nil : .dock
+                }
+                .accessibilityLabel("Mac Dock apps")
+            }
+            Button("Keyboard", systemImage: "keyboard") {
+                accessory = accessory == .keyboard ? nil : .keyboard
             }
             .accessibilityLabel("Text and keyboard shortcuts")
-            .help("Text and keyboard shortcuts")
-            .popover(isPresented: $showingKeyboard) {
-                KeyboardPanel(model: model, displayID: stream.id)
-            }
-            Button { focusView.toggle() } label: {
-                Image(systemName: focusView ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-            }
-            .accessibilityLabel(focusView ? "Show screen details" : "Focus view")
-            .accessibilityValue(focusView ? "Focus view on" : "Focus view off")
-            .help(focusView ? "Show screen details" : "Focus view")
-            Button { showingHelp = true } label: {
-                Image(systemName: "questionmark.circle")
-            }
-            .accessibilityLabel("Screen control help")
-            .help("Screen control help")
-            .popover(isPresented: $showingHelp) {
-                ScreenControlHelpPanel(mode: mode)
-            }
             Menu {
+                Button(focusView ? "Show screen details" : "Focus view",
+                       systemImage: "arrow.up.left.and.arrow.down.right") { focusView.toggle() }
+                Button("Connection details", systemImage: "info.circle") { accessory = .details }
+                Button("Screen control help", systemImage: "questionmark.circle") { accessory = .help }
                 Button("Display overview", systemImage: "square.grid.2x2") {
-                    openWindow(id: "desk")
+                    windows.open(.overview) { openWindow(id: "desk") }
                 }
-                Section("Open a screen") {
+                Section("Screens") {
                     ForEach(model.displays) { display in
                         let number = (model.displays.firstIndex(where: { $0.id == display.id }) ?? 0) + 1
                         Button("\(number) · \(display.info.name)", systemImage: "display") {
-                            openWindow(id: "display", value: display.id)
+                            windows.open(.display(display.id)) { openWindow(id: "display", value: display.id) }
                         }
                     }
                 }
+                Section("Close windows") {
+                    Button("Close this screen", systemImage: "xmark.rectangle") { windows.close(.display(stream.id)) }
+                    Button("Close all screens", systemImage: "rectangle.stack.badge.minus") {
+                        windows.open(.overview) { openWindow(id: "desk") }
+                        windows.closeAllDisplays()
+                    }
+                }
             } label: {
-                Image(systemName: "square.grid.2x2")
+                Image(systemName: "ellipsis.circle")
             }
-            .accessibilityLabel("Choose a screen or open overview")
-            .help("Screens and overview")
+            .accessibilityLabel("More screen options")
         }
     }
 
@@ -247,7 +256,7 @@ private struct ScreenControlHelpPanel: View {
         .font(.subheadline)
         .fixedSize(horizontal: false, vertical: true)
         .padding(26)
-        .frame(width: 450)
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -305,11 +314,11 @@ enum ScreenGesturePolicy {
     /// pointer.
     static let pointerPanThreshold: CGFloat = 10
 
-    /// Whether a native tap clicks, taking precedence over the pan. Only Pointer: a Drag pinch
-    /// clicks through its own press and release, and Scroll never clicks.
-    static func tapClicks(in mode: ScreenInteractionMode) -> Bool { mode == .pointer }
+    /// Direct and Trackpad taps take precedence over pans. Their exclusive recognizer
+    /// makes each pinch a tap or a drag, never both. Explicit Drag and Scroll have no tap.
+    static func tapClicks(in mode: ScreenInteractionMode) -> Bool { mode == .pointer || mode == .direct }
 
-    /// How far a pinch travels before its pan recognizes. Drag and Scroll start on pinch-down.
+    /// Direct and Trackpad pans wait for real travel; Drag and Scroll start on pinch-down.
     static func panMinimumDistance(for mode: ScreenInteractionMode) -> CGFloat {
         tapClicks(in: mode) ? pointerPanThreshold : 0
     }
@@ -352,24 +361,30 @@ private struct DisplaySurface: View {
                 }
                 TimelineView(.periodic(from: .now, by: 0.5)) { context in
                   if !stream.isFresh() {
-                    VStack(spacing: 10) {
-                        if stream.image == nil {
+                    if stream.image == nil {
+                        VStack(spacing: 10) {
                             ProgressView().controlSize(.large)
-                        } else {
-                            Image(systemName: "pause.circle").font(.largeTitle)
+                            Text("Waiting for your screen").font(.headline)
+                            Text(SessionCopy.pausedScreenDetail(decodeWarning: stream.decodeWarning,
+                                                                isMacResponsive: model.isMacResponsive))
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
                         }
-                        Text(stream.image == nil ? "Waiting for your screen" : "Screen paused")
-                            .font(.headline)
-                        Text(SessionCopy.pausedScreenDetail(decodeWarning: stream.decodeWarning,
-                                                            isMacResponsive: model.isMacResponsive))
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(26)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
+                        .padding(24)
+                        .allowsHitTesting(false)
+                    } else {
+                        Label("Recovering screen…", systemImage: "arrow.triangle.2.circlepath")
+                            .font(.caption.weight(.medium))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(.thinMaterial, in: Capsule())
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                            .padding(14)
+                            .allowsHitTesting(false)
                     }
-                    .multilineTextAlignment(.center)
-                    .padding(26)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
-                    .padding(24)
-                    .allowsHitTesting(false)
                   } else if let until = placementPromptUntil, context.date < until {
                     VStack {
                         Spacer(minLength: 0)
@@ -389,10 +404,18 @@ private struct DisplaySurface: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
             .contentShape(DisplayHitRegion(imageRect: DisplayGeometry.imageRect(in: geometry.size, image: stream.imageSize) ?? .zero))
             .gesture(surfaceGesture(in: geometry.size, token: pinchToken))
+            .onChange(of: geometry.size) { _, _ in
+                // A resized picture has a new coordinate space. Never continue a held
+                // button with coordinates normalized against the previous geometry.
+                if let token = activePinchToken { model.cancelGesture(token: token) }
+                activePinchToken = nil
+                pinchToken = UUID()
+                pinchTarget.point = nil
+            }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(stream.info.name), \(stream.isFresh() ? "live screen" : "waiting for a fresh frame")")
             .accessibilityHint(controlHint(model, stream: stream, mode: mode))
-            // An assistive activation has no hand position, and no click aims anyway, so the
+            // An assistive activation has no hand position, so the
             // primary action clicks where this display's pointer already is, as a Pointer tap
             // and the toolbar's Left click do. Until something has placed that pointer, the
             // clicks are refused out loud, and the named placement action is the explicit,
@@ -437,11 +460,11 @@ private struct DisplaySurface: View {
         }
     }
 
-    /// The surface's one gesture. Pointer mode tries the native tap first and lets its pan
+    /// The surface's one gesture. Direct and Trackpad modes try the native tap first and lets its pan
     /// recognize only once the tap has failed and the hand has travelled past the threshold, so
-    /// a quick pinch, and the jitter of a hand held still while making one, is a click at the
-    /// pointer that never moves it. Drag and Scroll have no tap and start on pinch-down, so a
-    /// Drag press lands where the hand began.
+    /// a quick pinch is one click. Direct mode aims it; Trackpad preserves the last pointer.
+    /// Drag and Scroll have no tap and start on pinch-down. A direct pan starts a held
+    /// press at the original target only after deliberate hand travel.
     private func surfaceGesture(in size: CGSize, token: UUID) -> AnyGesture<Void> {
         let pan = screenGesture(in: size, token: token,
                                 minimumDistance: ScreenGesturePolicy.panMinimumDistance(for: mode))
@@ -481,24 +504,25 @@ private struct DisplaySurface: View {
             }
     }
 
-    /// Pointer mode's only click, at the pointer rather than at the tap. The tapped location is
-    /// passed only to be validated: the model never moves the pointer to it, and it cancels a
-    /// Pointer pan this tap somehow overlaps instead of draining that pan's unsent movement
-    /// ahead of the press. Drag and Scroll attach no tap: a Drag pinch already clicks through
-    /// its own press and release.
+    /// Direct mode aims at the tap; Trackpad mode clicks the previously placed pointer.
+    /// Exclusive recognition prevents either tap from also completing a drag.
     private func pointerTap(in size: CGSize) -> some Gesture {
         SpatialTapGesture(count: 1, coordinateSpace: .local)
             .onEnded { value in
                 // The hit region already confines a tap to the picture, so clamping only absorbs
                 // rounding at its edge, where a validated tap must not be lost.
-                guard mode == .pointer,
+                guard ScreenGesturePolicy.tapClicks(in: mode),
                       let point = DisplayGeometry.normalized(value.location, in: size,
                                                              image: stream.imageSize, clampToImage: true)
                 else { return }
-                if isRefusedForPlacement() {
+                if mode == .pointer && isRefusedForPlacement() {
                     placementPromptUntil = Date().addingTimeInterval(Self.placementPromptDuration)
                 }
-                model.tapClick(displayID: stream.id, at: point)
+                if mode == .direct {
+                    model.directTapClick(displayID: stream.id, at: point)
+                } else {
+                    model.tapClick(displayID: stream.id, at: point)
+                }
             }
     }
 
@@ -574,7 +598,7 @@ private struct KeyboardPanel: View {
                 }
             }
             .padding(24)
-            .frame(width: 480)
+            .frame(maxWidth: .infinity)
         }
     }
 }

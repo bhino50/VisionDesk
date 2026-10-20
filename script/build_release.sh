@@ -103,6 +103,7 @@ VISION_APP="$STAGE_DIR/visionOS/VisionDesk.app"
 mkdir -p "$(dirname "$VISION_APP")"
 cp -R "$WORK_DIR/vision-build/Build/Products/Release-xros/VisionDesk.app" "$VISION_APP"
 cp "$SOURCE_DIR/LICENSE" "$VISION_APP/LICENSE"
+python3 "$SOURCE_DIR/script/verify_app_bundle.py" "$VISION_APP"
 
 python3 - "$MAC_APP" "$VISION_APP" <<'CLEAN_APPS'
 from pathlib import Path

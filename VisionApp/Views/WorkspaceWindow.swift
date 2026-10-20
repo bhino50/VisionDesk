@@ -5,12 +5,17 @@ import SwiftUI
 struct WorkspaceWindow: View {
     @ObservedObject var model: DeskClientModel
     @Environment(\.openWindow) private var openWindow
+    @EnvironmentObject private var windows: DeskWindowRegistry
     @State private var largePreviews = false
     @State private var showingWorkspaceHelp = false
+    @State private var showingDetails = false
 
     var body: some View {
         VStack(spacing: 22) {
             header
+            if let message = windows.message {
+                Text(message).font(.footnote).foregroundStyle(.orange)
+            }
             if let warning = model.pairingPersistenceWarning {
                 Label(warning, systemImage: "exclamationmark.triangle")
                     .font(.subheadline)
@@ -22,7 +27,17 @@ struct WorkspaceWindow: View {
             if model.isLinked {
                 connectedWorkspace
             } else {
-                PairingPanel(model: model)
+                ScrollView {
+                    VStack(spacing: 18) {
+                        if showingDetails {
+                            HStack(alignment: .top) {
+                                ConnectionDetailsPanel(model: model)
+                                Button("Done") { showingDetails = false }
+                            }
+                        }
+                        PairingPanel(model: model)
+                    }
+                }
             }
         }
         .padding(28)
@@ -47,6 +62,24 @@ struct WorkspaceWindow: View {
             }
             Spacer(minLength: 8)
             ConnectionBadge(model: model)
+            Menu {
+                Button("Connection details", systemImage: "info.circle") {
+                    showingDetails.toggle()
+                    showingWorkspaceHelp = false
+                }
+                if model.isLinked {
+                    Button("Arrange & control", systemImage: "questionmark.circle") {
+                        showingWorkspaceHelp.toggle()
+                        showingDetails = false
+                    }
+                }
+                if windows.openDisplayCount > 0 {
+                    Button("Close all screen windows", systemImage: "xmark.rectangle") { windows.closeAllDisplays() }
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .accessibilityLabel("More workspace options")
             // In the header rather than a footer row of its own, so the displays keep that height
             // at the window's minimum size.
             if model.isLinked {
@@ -80,46 +113,56 @@ struct WorkspaceWindow: View {
                 .accessibilityHint("Changes the preview size in this overview. Your display windows stay open.")
                 Button {
                     for display in model.displays {
-                        openWindow(id: "display", value: display.id)
+                        windows.open(.display(display.id)) { openWindow(id: "display", value: display.id) }
                     }
                 } label: {
-                    Label("Open All", systemImage: "square.grid.2x2")
+                    Label(windows.openDisplayCount > 0 ? "Show All" : "Open All", systemImage: "square.grid.2x2")
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(model.displays.isEmpty)
             }
 
-            HStack(spacing: 10) {
-                Label("Choose a screen to open its own movable window.", systemImage: "hand.draw")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-                Button("Arrange & control") { showingWorkspaceHelp = true }
-                    .font(.footnote)
-                    .popover(isPresented: $showingWorkspaceHelp) {
-                        WorkspaceHelpPanel()
-                    }
-            }
+            Label("Choose a screen to open or return to its window.", systemImage: "hand.draw")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             ScrollView {
-                if model.displays.isEmpty {
-                    VStack(spacing: 12) {
-                        ProgressView()
-                        Text("Waiting for your Mac’s screens").font(.headline)
-                        Text("They appear once VisionDesk on your Mac is sharing, which needs Screen Recording permission there.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
+                VStack(spacing: 18) {
+                    if showingDetails {
+                        HStack(alignment: .top) {
+                            ConnectionDetailsPanel(model: model)
+                            Button("Done") { showingDetails = false }
+                        }
                     }
-                    .frame(maxWidth: .infinity, minHeight: 200)
-                } else {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16),
-                                             count: largePreviews ? 1 : 2),
-                              spacing: 16) {
-                        ForEach(model.displays) { display in
-                            DisplayOverviewCard(stream: display, number: displayNumber(display.id)) {
-                                openWindow(id: "display", value: display.id)
+                    if showingWorkspaceHelp {
+                        HStack(alignment: .top) {
+                            WorkspaceHelpPanel()
+                            Button("Done") { showingWorkspaceHelp = false }
+                        }
+                    }
+                    if model.dockLauncher.isAvailable {
+                        MacDockLauncher(model: model)
+                    }
+                    if model.displays.isEmpty {
+                        VStack(spacing: 12) {
+                            ProgressView()
+                            Text("Waiting for your Mac’s screens").font(.headline)
+                            Text("They appear once VisionDesk on your Mac is sharing, which needs Screen Recording permission there.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 200)
+                    } else {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16),
+                                                 count: largePreviews ? 1 : 2),
+                                  spacing: 16) {
+                            ForEach(model.displays) { display in
+                                DisplayOverviewCard(stream: display, number: displayNumber(display.id), isOpen: windows.isOpen(display.id)) {
+                                    windows.open(.display(display.id)) { openWindow(id: "display", value: display.id) }
+                                }
                             }
                         }
                     }
@@ -147,6 +190,7 @@ struct WorkspaceWindow: View {
 private struct DisplayOverviewCard: View {
     @ObservedObject var stream: DisplayStream
     let number: Int
+    let isOpen: Bool
     let open: () -> Void
 
     var body: some View {
@@ -195,7 +239,7 @@ private struct DisplayOverviewCard: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)
-                    Label("Open", systemImage: "arrow.up.forward.square")
+                    Label(isOpen ? "Show window" : "Open", systemImage: isOpen ? "rectangle.on.rectangle" : "arrow.up.forward.square")
                         .font(.subheadline.weight(.medium))
                 }
             }
@@ -233,7 +277,7 @@ private struct WorkspaceHelpPanel: View {
         .font(.subheadline)
         .fixedSize(horizontal: false, vertical: true)
         .padding(26)
-        .frame(width: 460)
+        .frame(maxWidth: .infinity)
     }
 }
 

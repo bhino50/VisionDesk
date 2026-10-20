@@ -4,11 +4,13 @@
 
 <p align="center">
   <strong>Up to four Mac displays. A movable Vision Pro window for each one.</strong><br>
-  <a href="https://github.com/bhino50/VisionDesk/releases/tag/v0.2.3">Download the preview</a> ·
+  <a href="https://github.com/bhino50/VisionDesk/releases/latest">Download the preview</a> ·
   <a href="BUILD.md">Build &amp; install</a> ·
   <a href="docs/VISUAL_GUIDE.md">Visual walkthrough</a> ·
   <a href="LICENSE">MIT licensed</a>
 </p>
+
+**Preview installation:** the Mac download is ad-hoc signed and unnotarized. The Vision Pro download is unsigned and requires your own Xcode signing and provisioning; it is not a one-click headset installer. See [Build & install](BUILD.md).
 
 VisionDesk shows the physical displays attached to a Mac in separate Apple Vision Pro windows. The Mac companion captures up to four displays, streams hardware H.264 video when available, and accepts optional pointer and keyboard input from the paired headset.
 
@@ -47,9 +49,9 @@ Each preview opens a separate display window. **Open All** opens all shared scre
 
 ![A VisionDesk display window with pointer and keyboard controls](docs/images/vision-controls.jpg)
 
-Use the display window's pointer, scrolling, and keyboard controls when Mac control is enabled. The screen content here is a synthetic documentation sample.
+Use **Point & Click** to tap a target directly or pinch and move to drag. **Trackpad** keeps clicks at the cursor, and **Scroll** pans a page. The Mouse menu offers secondary click actions; Keyboard opens typing controls. Mac control must be enabled. The screen content here is a synthetic documentation sample.
 
-*Mac capture: production SwiftUI view rendered with a documentation fixture. Vision Pro captures: production views running in the visionOS Simulator with synthetic display content. These show the interface rather than a physical-headset session. [Capture details](docs/VISUAL_GUIDE.md#about-these-pictures).*
+*These captures document the earlier preview layout; current controls include the Point & Click mode and a consolidated Mouse menu. Mac capture: production SwiftUI view rendered with a documentation fixture. Vision Pro captures: production views running in the visionOS Simulator with synthetic display content. These show the interface rather than a physical-headset session. [Capture details](docs/VISUAL_GUIDE.md#about-these-pictures).*
 
 ## Connect
 

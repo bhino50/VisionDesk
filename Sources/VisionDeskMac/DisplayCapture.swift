@@ -46,6 +46,9 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     // Touched only from the serial capture queue. Monotonic: a backward wall-clock step must not
     // stall idle repeats for a static screen.
     private var lastVideoSubmission = -Double.infinity
+    private lazy var idleRepeater = CaptureIdleRepeater(queue: queue, interval: Self.idleRepeatInterval) { [weak self] in
+        self?.repeatIdleFrame(at: ProcessInfo.processInfo.systemUptime)
+    }
 
     // Shared between the capture queue, the encoder's output handler and the main actor.
     private let lock = NSLock()
@@ -68,7 +71,7 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     private var sequence: UInt64 = 0
     private var invalidOutput = InvalidOutputBudget()
     /// The most recent genuinely captured frame, re-encoded as H.264 while the desktop sits idle.
-    /// It is never synthesized: without a live idle callback there is nothing here to repeat.
+    /// It is never synthesized. Repeats stop on an observed suspension or capture teardown.
     /// Kept only while video can still use it; the JPEG output holds its own pending frame.
     private var latestPixelBuffer: CVPixelBuffer?
 
@@ -110,6 +113,10 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         guard let stream else { return }
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await stream.startCapture()
+        queue.async { [self] in
+            lock.lock(); let stopped = isStopped; lock.unlock()
+            if !stopped { idleRepeater.start() }
+        }
     }
 
     /// Stops capture and tears down the encoder. After this returns, no further encoded frame
@@ -132,7 +139,7 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         stale?.invalidate()
         // A frame held back by pacing goes back to ScreenCaptureKit's pool. This runs after any
         // callback already in flight, and every later callback sees the stop latch.
-        queue.async { [preview] in preview.discardPending() }
+        queue.async { [self] in idleRepeater.stop(); preview.discardPending() }
         return alreadyStopped
     }
 
@@ -188,6 +195,7 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
+        queue.async { [self] in idleRepeater.sourceAvailable = false; preview.discardPending() }
         onFailure(CaptureFailure(error))
     }
 
@@ -202,16 +210,21 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
 
         let now = ProcessInfo.processInfo.systemUptime
         let frameStatus = SCFrameStatus(rawValue: raw)
-        // An idle callback means capture is alive but the desktop has not changed. Repeating
-        // the last real frame keeps the client's freshness window satisfied; `.blank`,
-        // `.suspended` and `.stopped` deliberately fall through and produce nothing at all.
+        // ScreenCaptureKit may stay silent on an unchanged desktop. The independent repeat
+        // clock keeps that active stream visible without requiring another idle callback.
+        // A blank/suspended/stopped observation revokes repeats until a real frame returns.
         if frameStatus == .idle {
             repeatIdleFrame(at: now)
             return
         }
         guard frameStatus == .complete || frameStatus == .started,
-              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-
+              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            idleRepeater.sourceAvailable = false
+            preview.discardPending()
+            lock.lock(); latestPixelBuffer = nil; lock.unlock()
+            return
+        }
+        idleRepeater.sourceAvailable = true
         retainForIdleRepeat(pixelBuffer)
         submitVideo(pixelBuffer, at: now)
         preview.frame(pixelBuffer, at: now, interval: currentPreviewInterval())
@@ -346,6 +359,8 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     }
 
     private func repeatIdleFrame(at uptime: TimeInterval) {
+        lock.lock(); let stopped = isStopped; lock.unlock()
+        guard !stopped, idleRepeater.sourceAvailable else { return }
         preview.idle(at: uptime, interval: currentPreviewInterval())
         guard onEncodedFrame != nil, uptime - lastVideoSubmission >= Self.idleRepeatInterval else { return }
         lock.lock()
@@ -409,6 +424,40 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         return Self.previewInterval(isDeliveringVideo: delivering, isHeadsetAttached: attached,
                                     isVideoCapture: onEncodedFrame != nil)
     }
+}
+
+/// A capture-queue clock independent of ScreenCaptureKit's change-driven callbacks.
+/// An unchanged active stream may repeat its last genuine frame; suspension and stop revoke it.
+/// All methods and properties are confined to the supplied serial queue.
+final class CaptureIdleRepeater: @unchecked Sendable {
+    var sourceAvailable = false
+    private let queue: DispatchQueue
+    private let interval: TimeInterval
+    private let repeatFrame: @Sendable () -> Void
+    private var timer: DispatchSourceTimer?
+
+    init(queue: DispatchQueue, interval: TimeInterval, repeatFrame: @escaping @Sendable () -> Void) {
+        self.queue = queue; self.interval = interval; self.repeatFrame = repeatFrame
+    }
+
+    func start() {
+        guard timer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + interval, repeating: interval)
+        timer.setEventHandler { [weak self] in
+            guard let self, self.sourceAvailable else { return }
+            self.repeatFrame()
+        }
+        self.timer = timer
+        timer.resume()
+    }
+
+    func stop() {
+        sourceAvailable = false
+        timer?.cancel(); timer = nil
+    }
+
+    deinit { timer?.cancel() }
 }
 
 /// A display's JPEG output: pacing, the newest frame pacing held back, and the idle repeat.

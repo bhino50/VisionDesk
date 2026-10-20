@@ -55,6 +55,8 @@ def inspect(root: Path) -> dict[str, object]:
 
     commits = git(root, "rev-list", "--all").decode().splitlines()
     for commit in commits:
+        check("commit-metadata", git(root, "cat-file", "commit", commit),
+              f"{commit[:12]}:commit-metadata")
         for record in filter(None, git(root, "ls-tree", "-rz", commit).split(b"\0")):
             metadata, raw_name = record.split(b"\t", 1)
             mode, kind, object_id = metadata.decode().split()
@@ -73,7 +75,7 @@ def inspect(root: Path) -> dict[str, object]:
         "issues": issues,
         "limitations": [
             "Pattern inspection cannot prove absence of all private information.",
-            "Remote-only refs, Git commit messages, LFS objects, and release assets are not inspected.",
+            "Remote-only refs, LFS objects, and release assets are not inspected.",
             "Untracked files are inspected separately by verify_release_privacy.py.",
         ],
     }

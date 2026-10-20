@@ -33,3 +33,7 @@ This distribution uses generic identifiers beginning with `org.visiondesk`. Save
 `script/build_release.sh` builds in a temporary source directory, maps compiler source paths to neutral paths, removes debug/module artifacts and profiles from the packaged applications, signs the Mac app ad hoc, and verifies the release with `script/verify_release_privacy.py`. That inspection checks source and application/archive contents for credential signatures, personal user paths, the build user's name, forbidden files, and certificate-backed code signatures. It emits only categories and relative paths when reporting a problem; it does not print matched secret values.
 
 The source inventory, build mode, platform, archive hashes, and privacy inspection report accompany each release. Automated inspection reduces publication mistakes; it does not establish the absence of every possible privacy or security defect. Physical device acceptance and any operational diagnostics remain separate from the distributable build.
+
+## Publication checks
+
+Network examples are synthetic fixtures. Maintainers should set `VISION_DESK_PRIVACY_DENYLIST` to a private JSON file containing identifiers that must never appear in a release. Keep that file outside this repository. The scanner checks these literals without printing their values, including binary UTF-16 strings. Run both repository and release scanners: history, metadata, and downloadable artifacts are separate surfaces. Pattern checks cannot prove absence of every private fact.

@@ -4,26 +4,16 @@ import SwiftUI
 @MainActor
 struct ConnectionBadge: View {
     @ObservedObject var model: DeskClientModel
-    @State private var showingDetails = false
 
     var body: some View {
-        Button { showingDetails = true } label: {
-            Label(model.connectionLabel, systemImage: symbol)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(tint)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(.thinMaterial, in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .hoverEffect(.highlight)
-        .accessibilityLabel("Connection details")
-        .accessibilityValue(model.connectionLabel)
-        .accessibilityHint("Shows connection status and the freshness of each screen.")
-        .help("Connection details")
-        .popover(isPresented: $showingDetails) {
-            ConnectionDetailsPanel(model: model)
-        }
+        Label(model.connectionLabel, systemImage: symbol)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(.thinMaterial, in: Capsule())
+            .accessibilityLabel("Connection status")
+            .accessibilityValue(model.connectionLabel)
     }
 
     /// A silent Mac outranks every other state here, as it does in `connectionLabel`, so the
@@ -47,49 +37,47 @@ struct ConnectionBadge: View {
     }
 }
 
-/// Available from the status badge even while disconnected. No keys, host addresses or
+/// Optional connection details opened deliberately from More. No keys, host addresses or
 /// device identifiers are displayed, and opening this panel never changes the session.
 @MainActor
-private struct ConnectionDetailsPanel: View {
+struct ConnectionDetailsPanel: View {
     @ObservedObject var model: DeskClientModel
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("Connection details").font(.title3.weight(.semibold))
-                LabeledContent("Status", value: model.connectionLabel)
-                LabeledContent("Connection", value: model.connectionRouteLabel)
-                if model.isLinked {
-                    LabeledContent("Control", value: model.controlSummary.title)
-                    LabeledContent("Screens shared", value: "\(model.displays.count)")
-                } else if model.retryExhausted {
-                    Label("Automatic attempts finished", systemImage: "pause.circle")
-                        .foregroundStyle(.orange)
-                } else if model.reconnectAttempt > 0 {
-                    LabeledContent("Reconnect attempt", value: "\(model.reconnectAttempt) of \(DeskClientModel.reconnectDelays.count)")
-                }
-                ForEach(Array(model.displays.enumerated()), id: \.element.id) { index, stream in
-                    StreamConnectionDetails(stream: stream, number: index + 1)
-                }
-                Text(ConnectionDiagnostics.recoveryAdvice(
-                    isLinked: model.isLinked, isResponsive: model.isMacResponsive,
-                    hasDisplays: !model.displays.isEmpty, retryExhausted: model.retryExhausted,
-                    isRetrying: model.isConnecting || model.isReconnecting))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if model.canReconnectNow {
-                    Button("Reconnect now", action: model.reconnectNow)
-                        .accessibilityHint("Ends the current connection and tries the same Mac again.")
-                }
-                Text("Frame age is time since a picture was decoded here. It is not a network latency measurement.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Connection details").font(.title3.weight(.semibold))
+            LabeledContent("Status", value: model.connectionLabel)
+            LabeledContent("Connection", value: model.connectionRouteLabel)
+            if model.isLinked {
+                LabeledContent("Control", value: model.controlSummary.title)
+                LabeledContent("Screens shared", value: "\(model.displays.count)")
+            } else if model.retryExhausted {
+                Label("Automatic attempts finished", systemImage: "pause.circle")
+                    .foregroundStyle(.orange)
+            } else if model.reconnectAttempt > 0 {
+                LabeledContent("Reconnect attempt", value: "\(model.reconnectAttempt) of \(DeskClientModel.reconnectDelays.count)")
             }
-            .font(.subheadline)
-            .padding(24)
+            ForEach(Array(model.displays.enumerated()), id: \.element.id) { index, stream in
+                StreamConnectionDetails(stream: stream, number: index + 1)
+            }
+            Text(ConnectionDiagnostics.recoveryAdvice(
+                isLinked: model.isLinked, isResponsive: model.isMacResponsive,
+                hasDisplays: !model.displays.isEmpty, retryExhausted: model.retryExhausted,
+                isRetrying: model.isConnecting || model.isReconnecting))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if model.canReconnectNow {
+                Button("Reconnect now", action: model.reconnectNow)
+                    .accessibilityHint("Ends the current connection and tries the same Mac again.")
+            }
+            Text("Frame age is time since a picture was decoded here. It is not a network latency measurement.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 480, height: model.displays.isEmpty ? 330 : 550)
+        .font(.subheadline)
+        .padding(18)
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -122,28 +110,19 @@ private struct StreamConnectionDetails: View {
 struct DisplayControlBadge: View {
     @ObservedObject var model: DeskClientModel
     @ObservedObject var stream: DisplayStream
-    @State private var showingDetails = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.5)) { _ in
             let ready = model.isMacResponsive && model.canControl(displayID: stream.id)
             let paused = !model.isMacResponsive || !stream.isFresh()
-            Button { showingDetails = true } label: {
-                Label(ready ? "Control ready" : paused ? "Paused" : model.controlSummary.title,
-                      systemImage: ready ? "cursorarrow.rays" : paused ? "pause.circle" : "eye")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(ready ? Color.green : paused ? Color.orange : Color.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(.thinMaterial, in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .hoverEffect(.highlight)
-            .accessibilityHint("Open connection details. " + (ready ? "Input is available on this screen."
-                               : paused ? "This screen is waiting for a fresh connection or frame before input resumes."
-                               : model.controlSummary.detail))
+            Label(ready ? "Control ready" : paused ? "Paused" : model.controlSummary.title,
+                  systemImage: ready ? "cursorarrow.rays" : paused ? "pause.circle" : "eye")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(ready ? Color.green : paused ? Color.orange : Color.secondary)
+                .accessibilityHint(ready ? "Input is available on this screen."
+                                   : paused ? "Input resumes when this screen is fresh again."
+                                   : model.controlSummary.detail)
         }
-        .popover(isPresented: $showingDetails) { ConnectionDetailsPanel(model: model) }
     }
 }
 

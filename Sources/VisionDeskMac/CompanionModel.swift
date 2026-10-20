@@ -91,9 +91,12 @@ final class CompanionModel: ObservableObject {
     /// that — not the presence of an encoder — is what sets each display's JPEG cadence: during
     /// negotiation the encoders are already running while the headset is still being served
     /// images, and throttling on encoder existence would hold that window at two frames/sec.
+    private var videoSendRecovery = VideoSendRecovery()
     private var peerUsesVideo = false {
         didSet {
             guard oldValue != peerUsesVideo else { return }
+            videoSendRecovery = VideoSendRecovery()
+            if peerUsesVideo { videoSendRecovery.requireKeyframes(for: displays.map(\.id)) }
             captures.forEach { $0.setDeliveringVideo(peerUsesVideo) }
         }
     }
@@ -114,6 +117,13 @@ final class CompanionModel: ObservableObject {
     private var keyHideTask: Task<Void, Never>?
     var manuallyStopped = false
     private let server = DeskServer()
+    let dockAppLauncher: DockAppLauncher
+    private var peerSupportsDockLauncher = false
+    private var appLaunchInFlight = false
+    private var appLaunchToken: UUID?
+    private var lastAppLaunch = -Double.infinity
+    private var lastAppCatalog = -Double.infinity
+    private var advertisedDockApps: [DockAppInfo] = []
     private let input: InputOutput
     /// The authenticated session. Captures follow it, because whether anyone is attached decides
     /// how often their JPEG has to be encoded.
@@ -172,7 +182,9 @@ final class CompanionModel: ObservableObject {
          uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          screenCaptureAccess: @escaping () -> Bool = { CGPreflightScreenCaptureAccess() },
          controlAccess: InputPermissionCache = InputPermissionCache(),
-         keyReveal: PairingKeyReveal = .standard) {
+         keyReveal: PairingKeyReveal = .standard,
+         dockAppLauncher: DockAppLauncher? = nil) {
+        self.dockAppLauncher = dockAppLauncher ?? DockAppLauncher()
         self.selectedDisplayIDs = selectedDisplayIDs
         self.saveDisplaySelection = saveDisplaySelection
         self.resolveDisplaySelection = resolveDisplaySelection
@@ -347,6 +359,7 @@ final class CompanionModel: ObservableObject {
     // Internal so the behavior harness can exercise reconnect consent without opening a socket.
     func attach(_ connection: DeskConnection) {
         input.release(); controlEnabled = false
+        peerSupportsDockLauncher = false; appLaunchInFlight = false; lastAppLaunch = -.infinity; lastAppCatalog = -.infinity
         channel = connection; connected = true; peerUsesVideo = false; peerSupportsVideo = false; lastKeyframeRequest = [:]
         // The headset has the key now, and the screen it sees may show it.
         hidePairingKey()
@@ -404,6 +417,7 @@ final class CompanionModel: ObservableObject {
         if manual { if !remoteConfiguration.enabled { setLANAvailability(false) }; manuallyStopped = true; resumeTask?.cancel(); resumeTask = nil; backoff.reset() }
         if !retainKeepAwake { keepAwake.release() }
         peerUsesVideo = false; peerSupportsVideo = false
+        peerSupportsDockLauncher = false; appLaunchInFlight = false
         generation += 1
         input.release(); controlEnabled = false
         tellHeadset(headsetNotice)
@@ -435,6 +449,12 @@ final class CompanionModel: ObservableObject {
 
     func receive(_ message: DeskMessage) {
         guard message.isValid else { revoke("Invalid input received. Re-enable locally after checking the client."); return }
+        if message.kind == "capabilities", message.dockLauncher == true {
+            peerSupportsDockLauncher = true
+            sendDockApps()
+        }
+        if message.kind == "requestApps" { sendDockApps(); return }
+        if message.kind == "launchApp" { launchDockApp(message); return }
         if message.kind == "capabilities", message.videoCodec == DeskMessage.supportedVideoCodec {
             peerSupportsVideo = true
             peerUsesVideo = !captures.isEmpty && captures.allSatisfy(\.isEncodingVideo)
@@ -470,6 +490,65 @@ final class CompanionModel: ObservableObject {
         if !testMode, !input.hasPermission { revoke("Accessibility permission was removed."); return }
         inputCount += 1; lastInput = "\(message.action ?? "Input") · display \(id)"
         if !testMode { input.apply(message) }
+    }
+
+    private func sendDockApps() {
+        guard peerSupportsDockLauncher, let channel else { return }
+        let now = uptime()
+        if now - lastAppCatalog >= 1 {
+            lastAppCatalog = now
+            advertisedDockApps = dockAppLauncher.catalog()
+        }
+        channel.send(DeskMessage(kind: "apps", dockApps: advertisedDockApps, appPlacement: true))
+    }
+
+    private func launchDockApp(_ message: DeskMessage) {
+        guard peerSupportsDockLauncher, let connection = channel,
+              let id = message.appID, let requestID = message.appRequestID else { return }
+        func reply(_ succeeded: Bool, _ status: String) {
+            connection.send(DeskMessage(kind: "appLaunchResult", status: status,
+                appID: id, appRequestID: requestID, appLaunchSucceeded: succeeded))
+        }
+        let target: DisplayInfo?
+        if let displayID = message.displayID {
+            guard let display = displays.first(where: { $0.id == displayID }), CGDisplayIsOnline(displayID) != 0 else {
+                reply(false, "The selected Mac screen is no longer shared. Choose another screen."); return
+            }
+            target = display
+        } else { target = nil }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard connected, controlEnabled, !testMode, now - lastHeartbeat < 1.5, input.hasPermission else {
+            reply(false, "Enable Mac control before opening apps."); return
+        }
+        guard !appLaunchInFlight, now - lastAppLaunch >= 1 else {
+            reply(false, "An app is already opening. Try again in a moment."); return
+        }
+        lastAppLaunch = now; appLaunchInFlight = true
+        let token = generation
+        let launchToken = UUID()
+        appLaunchToken = launchToken
+        dockAppLauncher.launch(id: id, target: target, canRoute: { [weak self, weak connection] in
+            guard let self, let connection, self.channel === connection, self.generation == token,
+                  self.connected, self.controlEnabled, !self.testMode,
+                  ProcessInfo.processInfo.systemUptime - self.lastHeartbeat < 1.5, self.input.hasPermission else { return false }
+            return target.map { self.displays.contains($0) && CGDisplayIsOnline($0.id) != 0 } ?? true
+        }) { [weak self, weak connection] outcome in
+            guard let self, self.generation == token, self.appLaunchToken == launchToken, let connection, self.channel === connection else { return }
+            self.appLaunchInFlight = false; self.appLaunchToken = nil
+            let status: String
+            if !outcome.opened { status = "Could not open this app. Refresh Mac apps and try again." }
+            else if outcome.placed == true { status = "App opened on the selected Mac screen." }
+            else if outcome.placed == false { status = "App opened, but its window could not be moved to the selected screen. It may have no movable window." }
+            else { status = "App opened on your Mac." }
+            reply(outcome.succeeded, status)
+        }
+        Task { @MainActor [weak self, weak connection] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            guard let self, self.generation == token, self.appLaunchToken == launchToken,
+                  let connection, self.channel === connection else { return }
+            self.appLaunchInFlight = false; self.appLaunchToken = nil
+            reply(false, "The app took too long to open. Refresh Mac apps and try again.")
+        }
     }
 
     /// The single response to a headset that stopped sending heartbeats, wherever it is noticed
@@ -559,13 +638,19 @@ final class CompanionModel: ObservableObject {
     /// and sends the frames to the headset. Counting happens even with nobody attached.
     func deliverVideo(_ frames: [(UInt32, EncodedVideoFrame)], losses: Set<UInt32>) {
         for (id, frame) in frames { encodedFrameCounts[id, default: 0] += 1; encodedByteCount += frame.payload.count }
+        videoSendRecovery.requireKeyframes(for: Array(losses))
         for id in losses { requestKeyframe(displayID: id) }
         if !peerUsesVideo, peerSupportsVideo, !captures.isEmpty, captures.allSatisfy(\.isEncodingVideo) {
             peerUsesVideo = true; captures.forEach { $0.requestKeyframe() }
         }
         guard peerUsesVideo, let channel else { return }
         for (id, frame) in frames {
-            if channel.send(DeskMessage(kind: "video", displayID: id, video: frame)) { framesSent += 1 }
+            guard videoSendRecovery.allows(id: id, isKeyframe: frame.isKeyframe) else {
+                framesDropped += 1; continue
+            }
+            let sent = channel.send(DeskMessage(kind: "video", displayID: id, video: frame))
+            videoSendRecovery.record(id: id, isKeyframe: frame.isKeyframe, sent: sent)
+            if sent { framesSent += 1 }
             else { framesDropped += 1; requestKeyframe(displayID: id) }
         }
     }

@@ -42,6 +42,21 @@ public struct DisplayInfo: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+public struct DockAppInfo: Codable, Identifiable, Equatable, Sendable {
+    public var id: String
+    public var name: String
+    public var iconPNG: Data?
+
+    public init(id: String, name: String, iconPNG: Data? = nil) {
+        self.id = id; self.name = name; self.iconPNG = iconPNG
+    }
+
+    public var isValid: Bool {
+        !id.isEmpty && id.utf8.count <= 128 && !name.isEmpty && name.utf8.count <= 256
+            && (iconPNG.map { !$0.isEmpty && $0.count <= 16 * 1_024 } ?? true)
+    }
+}
+
 /// Versioned, bounded messages shared by the Mac and visionOS applications.
 /// Coordinates are normalized within the selected display, before letterboxing.
 public struct DeskMessage: Codable, Equatable, Sendable {
@@ -50,6 +65,7 @@ public struct DeskMessage: Codable, Equatable, Sendable {
     /// refuses a larger `displays` message — and the transport sizes its per-display send
     /// capacity from it, so the two can never disagree about how many streams to plan for.
     public static let maximumSharedDisplays = 4
+    public static let maximumDockApps = 64
     /// The only compressed video codec this protocol version carries.
     public static let supportedVideoCodec = "h264"
     /// The only negotiated binary body format this protocol version understands.
@@ -85,9 +101,15 @@ public struct DeskMessage: Codable, Equatable, Sendable {
     public var wireFormat: String?
     /// Authenticated status only: the Mac retains this pairing for later sessions.
     /// Absent on older hosts and on temporary pairings.
+    public var appPlacement: Bool?
+    public var dockApps: [DockAppInfo]?
+    public var appID: String?
+    public var appRequestID: String?
+    public var appLaunchSucceeded: Bool?
+    public var dockLauncher: Bool?
     public var keepsPairing: Bool?
 
-    public init(version: Int = 1, kind: String, displays: [DisplayInfo]? = nil, displayID: UInt32? = nil, jpeg: Data? = nil, x: Double? = nil, y: Double? = nil, action: String? = nil, text: String? = nil, deltaX: Double? = nil, deltaY: Double? = nil, status: String? = nil, controlEnabled: Bool? = nil, video: EncodedVideoFrame? = nil, videoCodec: String? = nil, wireFormat: String? = nil, keepsPairing: Bool? = nil) {
+    public init(version: Int = 1, kind: String, displays: [DisplayInfo]? = nil, displayID: UInt32? = nil, jpeg: Data? = nil, x: Double? = nil, y: Double? = nil, action: String? = nil, text: String? = nil, deltaX: Double? = nil, deltaY: Double? = nil, status: String? = nil, controlEnabled: Bool? = nil, video: EncodedVideoFrame? = nil, videoCodec: String? = nil, wireFormat: String? = nil, keepsPairing: Bool? = nil, dockApps: [DockAppInfo]? = nil, appID: String? = nil, appRequestID: String? = nil, appLaunchSucceeded: Bool? = nil, dockLauncher: Bool? = nil, appPlacement: Bool? = nil) {
         self.version = version
         self.kind = kind
         self.displays = displays
@@ -105,10 +127,21 @@ public struct DeskMessage: Codable, Equatable, Sendable {
         self.videoCodec = videoCodec
         self.wireFormat = wireFormat
         self.keepsPairing = keepsPairing
+        self.appPlacement = appPlacement
+        self.dockApps = dockApps; self.appID = appID; self.appRequestID = appRequestID
+        self.appLaunchSucceeded = appLaunchSucceeded; self.dockLauncher = dockLauncher
     }
 
     public var isValid: Bool {
         guard version == 1,
+              dockApps == nil || kind == "apps",
+              appPlacement == nil || kind == "apps",
+              dockLauncher == nil || kind == "capabilities",
+              appID == nil || kind == "launchApp" || kind == "appLaunchResult",
+              appRequestID == nil || kind == "launchApp" || kind == "appLaunchResult",
+              appLaunchSucceeded == nil || kind == "appLaunchResult",
+              appID.map({ !$0.isEmpty && $0.utf8.count <= 128 }) ?? true,
+              appRequestID.map({ $0.utf8.count <= 64 && UUID(uuidString: $0) != nil }) ?? true,
               jpeg == nil || kind == "frame",
               displays == nil || kind == "displays",
               video == nil || kind == "video",
@@ -123,6 +156,15 @@ public struct DeskMessage: Codable, Equatable, Sendable {
               deltaX.map({ $0.isFinite && abs($0) <= 2_000 }) ?? true,
               deltaY.map({ $0.isFinite && abs($0) <= 2_000 }) ?? true else { return false }
         switch kind {
+        case "apps":
+            guard let dockApps, dockApps.count <= Self.maximumDockApps else { return false }
+            return dockApps.allSatisfy(\.isValid) && Set(dockApps.map(\.id)).count == dockApps.count
+        case "requestApps":
+            return true
+        case "launchApp":
+            return appID != nil && appRequestID != nil && (displayID.map { $0 != 0 } ?? true)
+        case "appLaunchResult":
+            return appID != nil && appRequestID != nil && status != nil && appLaunchSucceeded != nil
         case "displays":
             guard let displays, displays.count <= Self.maximumSharedDisplays else { return false }
             return displays.allSatisfy(\.isValid) && Set(displays.map(\.id)).count == displays.count

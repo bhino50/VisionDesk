@@ -16,6 +16,10 @@ extension DeskClientModel {
 
     /// Pointer mode's native tap: clicks where the pointer already is and never where the tap
     /// landed. See `PointerInput.tapClick`.
+    func directTapClick(displayID: UInt32, at point: CGPoint) {
+        pointer.directTapClick(displayID: displayID, at: point)
+    }
+
     func tapClick(displayID: UInt32, at point: CGPoint) {
         pointer.tapClick(displayID: displayID, at: point)
     }

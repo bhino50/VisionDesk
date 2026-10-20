@@ -19,6 +19,27 @@ class ReleasePrivacyTests(unittest.TestCase):
     def setUp(self):
         self.patterns = privacy.detectors(host_addresses=set())
 
+    def test_private_denylist_catches_infrastructure_in_binary_encodings(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            denylist = Path(temporary) / "private.json"
+            sample = "fictional-" + "owner-host-é.invalid"
+            denylist.write_text(json.dumps([sample]))
+            with patch.dict("os.environ", {"VISION_DESK_PRIVACY_DENYLIST": str(denylist)}):
+                patterns = privacy.detectors(host_addresses=set())
+            for encoding in ("utf-8", "utf-16-le", "utf-16-be"):
+                self.assertIn("private-publication-identifier",
+                              privacy.content_findings(sample.encode(encoding), patterns))
+            self.assertFalse(privacy.content_findings(b"studio-mac.example", patterns))
+
+    def test_invalid_private_denylist_fails_closed_without_values(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            denylist = Path(temporary) / "private.json"
+            for content in ('{}', '[]', '[null]', '[" "]', 'invalid'):
+                denylist.write_text(content)
+                with patch.dict("os.environ", {"VISION_DESK_PRIVACY_DENYLIST": str(denylist)}):
+                    with self.assertRaises(RuntimeError):
+                        privacy.detectors(host_addresses=set())
+
     def test_fine_grained_and_classic_tokens(self):
         tokens = ["github_" + "pat_" + "A1_" * 20, "gh" + "p_" + "B" * 40]
         for sample in tokens:

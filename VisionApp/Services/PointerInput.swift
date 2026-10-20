@@ -6,8 +6,8 @@ import Foundation
 ///
 /// This is the half of the client that decides what reaches the Mac's pointer and keyboard:
 /// one gesture owns the pointer at a time, held-back movement is coalesced and drained in
-/// order, every press is matched by a release on every end path, and every click lands where
-/// the pointer already is. It owns no connection. `DeskClientModel` supplies the gates and the
+/// order, every press is matched by a release on every end path, and direct clicks aim at the selected target while trackpad clicks use
+/// the previously placed pointer. It owns no connection. `DeskClientModel` supplies the gates and the
 /// one send path. A send that fails may end the session — and re-enter this object through
 /// `releaseGesture` and `forgetAllPositions` — before the call that made it returns, which is
 /// why gesture state is re-read after every send rather than assumed.
@@ -53,6 +53,7 @@ final class PointerInput {
 
     /// The display the active gesture belongs to, if one owns the pointer.
     var activeDisplayID: UInt32? { activeGesture?.displayID }
+    var canPerformDiscreteAction: Bool { activeGesture == nil }
 
     func hasPosition(displayID: UInt32) -> Bool {
         lastPoints[displayID] != nil
@@ -105,6 +106,14 @@ final class PointerInput {
     ///
     /// Anything else that owns the pointer — a Drag holding the button, a Scroll, a gesture on
     /// another display — keeps it, and the tap is refused rather than interleaved.
+    /// A direct spatial tap aims and clicks in one action, including on a fresh display.
+    /// An existing gesture keeps ownership, even on this display; the surface arbitrates a
+    /// tap against a drag with an exclusive recognizer rather than interrupting a held button.
+    func directTapClick(displayID: UInt32, at point: CGPoint) {
+        guard activeGesture == nil, canControl(displayID), valid(point) else { return }
+        leftClick(displayID: displayID, at: point)
+    }
+
     func tapClick(displayID: UInt32, at point: CGPoint) {
         guard canControl(displayID), valid(point) else { return }
         if let active = activeGesture {
@@ -117,12 +126,10 @@ final class PointerInput {
     func click(displayID: UInt32, action: String) {
         // Refused before anything drains or releases: a click this display cannot place must
         // not end another display's gesture on its way to being refused.
-        guard canControl(displayID), lastPoints[displayID] != nil,
+        guard activeGesture == nil, canControl(displayID), lastPoints[displayID] != nil,
               ["rightClick", "doubleClick"].contains(action) else { return }
-        // The click belongs at the latest position pointed to, so held-back movement goes
-        // first and `lastPoints` is current by the time it is read below. A failed flush, or a
-        // release that failed to send, is a drop that has already torn the session down and
-        // cleared `lastPoints`, so the position is read again rather than assumed.
+        // Discrete buttons cannot interrupt a gesture. Any remaining queued input must
+        // succeed before the click, and the position is read again after that send.
         guard flushPendingInput(drain: true) else { return }
         releaseGesture()
         guard let point = lastPoints[displayID] else { return }
@@ -205,7 +212,7 @@ final class PointerInput {
             cancelPendingInput()
             coalescer.reset()
             offerMove(displayID: displayID, point: start)
-            if mode == .interact {
+            if mode == .interact || mode == .direct {
                 // A failed send disconnects, which has already released this gesture; a
                 // revoked gate drops the press. Either way nothing is held on the Mac.
                 guard activeGesture?.token == token,

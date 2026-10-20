@@ -109,6 +109,10 @@ extension CompanionModel {
         stop(headsetNotice: HeadsetNotice.remoteTurnedOff)
         hidePairingKey()
         adoptRemoteConfiguration(.disabled)
+        // Returning to nearby mode must restore its own saved Stop decisions, just as
+        // useNearbyConnection does. Remote consent cannot overwrite nearby consent.
+        ownerPausedControl = lanConfiguration.ownerPaused
+        peerPausedControl = lanConfiguration.peerPaused
         do {
             try deleteRemoteKey()
             remoteFeedback = .done("Remote access is off, and its pairing key is forgotten.")

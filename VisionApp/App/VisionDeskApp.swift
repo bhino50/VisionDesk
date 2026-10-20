@@ -3,16 +3,21 @@ import SwiftUI
 @main
 struct VisionDeskApp: App {
     @StateObject private var session = DeskClientModel()
+    @StateObject private var windows = DeskWindowRegistry()
 
     var body: some Scene {
         WindowGroup("VisionDesk", id: "desk") {
             WorkspaceWindow(model: session)
+                .environmentObject(windows)
+                .background(DeskWindowAnchor(registry: windows, key: .overview))
         }
         .defaultSize(width: 820, height: 720)
         .windowResizability(.contentMinSize)
 
         WindowGroup("Mac Display", id: "display", for: UInt32.self) { $displayID in
             DisplayWindow(model: session, displayID: displayID ?? 0)
+                .environmentObject(windows)
+                .background(DeskWindowAnchor(registry: windows, key: .display(displayID ?? 0)))
         }
         .defaultSize(width: 1120, height: 760)
         .windowResizability(.contentMinSize)

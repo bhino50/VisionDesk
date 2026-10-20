@@ -391,8 +391,8 @@ final class DisplayStreamVideoTests: XCTestCase {
         XCTAssertTrue(stream.isFresh(), "old decode results cannot disturb the recovered stream")
     }
 
-    /// A decode that fails has lost the reference chain, so the stale screen comes down with it.
-    func testFailedVideoDecodeDropsThePictureAndAsksForAKeyframe() async throws {
+    /// A failure keeps context visible, but never vouches for the old picture as current input.
+    func testFailedVideoDecodeKeepsContextButRevokesInputAndAsksForAKeyframe() async throws {
         let stream = DisplayStream(info: info())
 
         // Record the geometry first, so the second keyframe is admitted without a pipeline
@@ -403,17 +403,37 @@ final class DisplayStreamVideoTests: XCTestCase {
         stream.accept(jpeg: try jpeg())
         await wait(for: "the decoded picture") { stream.image != nil }
         XCTAssertTrue(stream.isFresh())
+        let previousPicture = stream.image
 
         var requests = 0
         stream.onKeyframeNeeded = { requests += 1 }
         stream.accept(video: SyntheticUnit.undecodableKeyframe(sequence: 1))
-        await wait(for: "the picture to be dropped") { stream.image == nil }
+        await wait(for: "the failed decode") { stream.decodeWarning != nil }
 
+        XCTAssertTrue(stream.image === previousPicture)
         XCTAssertNil(stream.receivedAt)
         XCTAssertFalse(stream.isFresh())
         XCTAssertTrue(stream.needsKeyframe)
         XCTAssertGreaterThan(requests, 0)
         XCTAssertEqual(stream.decodeWarning, "A frame could not be displayed.")
+    }
+
+    func testAStalledVideoScreenRequestsRecoveryWithoutMakingItsOldPictureFresh() async throws {
+        let first = try XCTUnwrap(H264Fixture.frames.first)
+        let stream = DisplayStream(info: info(width: first.width, height: first.height))
+        stream.accept(video: first)
+        await wait(for: "initial picture") { stream.isFresh() }
+        let stamp = try XCTUnwrap(stream.receivedAt)
+        let picture = stream.image
+        var requests = 0
+        stream.onKeyframeNeeded = { requests += 1 }
+        stream.requestRefreshIfStalled(at: stamp + 1)
+        XCTAssertEqual(requests, 0)
+        stream.requestRefreshIfStalled(at: stamp + DisplayStream.freshnessInterval)
+        XCTAssertEqual(requests, 1)
+        XCTAssertEqual(stream.receivedAt, stamp)
+        XCTAssertTrue(stream.image === picture)
+        XCTAssertFalse(stream.isFresh(at: stamp + DisplayStream.freshnessInterval))
     }
 
     // MARK: Source transitions

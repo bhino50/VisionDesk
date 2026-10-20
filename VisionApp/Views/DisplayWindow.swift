@@ -51,10 +51,10 @@ struct DisplayWindow: View {
                 .multilineTextAlignment(.center)
                 .padding(40)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .glassBackgroundEffect()
             }
         }
         .frame(minWidth: 100, minHeight: 100)
-        .glassBackgroundEffect()
         .modifier(DeskWindowLifecycle(model: model))
     }
 }
@@ -88,10 +88,10 @@ private struct ConnectedDisplay: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                .padding(14)
+                .padding(10)
                 .frame(width: 680)
                 .glassBackgroundEffect()
-                .padding(.bottom, 14)
+                .padding(.bottom, 8)
             }
             .ornament(attachmentAnchor: .scene(.bottom), contentAlignment: .top) {
                 VStack(spacing: 8) {
@@ -104,10 +104,10 @@ private struct ConnectedDisplay: View {
                         }
                     }
                 }
-                .padding(14)
+                .padding(10)
                 .frame(width: 680)
                 .glassBackgroundEffect()
-                .padding(.top, 14)
+                .padding(.top, 8)
             }
             .ornament(attachmentAnchor: .scene(.trailing), contentAlignment: .leading) {
                 if let accessory {
@@ -460,11 +460,6 @@ private struct DisplaySurface: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(.white.opacity(gestureIsActive ? 0.4 : 0.12), lineWidth: 1)
-                .allowsHitTesting(false)
-        }
         .onChange(of: gestureIsActive) { _, active in
             // SwiftUI resets GestureState for a cancellation and a completed drag alike, and
             // this reset is not ordered against `onEnded`. Reporting the reset rather than

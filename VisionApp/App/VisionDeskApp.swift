@@ -20,6 +20,7 @@ struct VisionDeskApp: App {
                 .background(DeskWindowAnchor(registry: windows, key: .display(displayID ?? 0)))
         }
         .defaultSize(width: 900, height: 600)
+        .windowStyle(.plain)
         .windowResizability(.contentMinSize)
         .defaultWindowPlacement { _, context in
             // Give Open All distinct initial positions around the overview. visionOS

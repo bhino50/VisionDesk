@@ -3,6 +3,25 @@ import Foundation
 import XCTest
 
 final class DeskMessageTests: XCTestCase {
+    func testKeyboardAcknowledgementsAreOptionalBoundedAndScoped() throws {
+        let id = UUID().uuidString
+        let offer = DeskMessage(kind: "capabilities", videoCodec: DeskMessage.supportedVideoCodec, keyboardAcknowledgements: true)
+        XCTAssertTrue(offer.isValid)
+        XCTAssertTrue(DeskMessage(kind: "input", displayID: 1, action: "text", text: "hello", keyboardRequestID: id).isValid)
+        for result in ["posted", "busy", "rejected", "uncertain"] {
+            let receipt = DeskMessage(kind: "keyboardResult", keyboardRequestID: id, keyboardResult: result)
+            XCTAssertTrue(receipt.isValid)
+            XCTAssertEqual(try JSONDecoder().decode(DeskMessage.self, from: JSONEncoder().encode(receipt)).keyboardResult, result)
+        }
+        XCTAssertFalse(DeskMessage(kind: "keyboardResult", keyboardResult: "posted").isValid)
+        XCTAssertFalse(DeskMessage(kind: "keyboardResult", keyboardRequestID: "not-a-uuid", keyboardResult: "posted").isValid)
+        XCTAssertFalse(DeskMessage(kind: "keyboardResult", keyboardRequestID: id, keyboardResult: "unknown").isValid)
+        XCTAssertFalse(DeskMessage(kind: "input", displayID: 1, x: 0.5, y: 0.5, action: "move", keyboardRequestID: id).isValid)
+        XCTAssertFalse(DeskMessage(kind: "heartbeat", keyboardAcknowledgements: true).isValid)
+        XCTAssertFalse(DeskMessage(kind: "heartbeat", keyboardResult: "posted").isValid)
+        XCTAssertTrue(DeskMessage(kind: "input", displayID: 1, action: "text", text: "legacy").isValid)
+    }
+
     private func display(_ id: UInt32 = 1) -> DisplayInfo {
         DisplayInfo(id: id, name: "Display \(id)", width: 3_840, height: 2_160, originX: -1_920, originY: -200, pointWidth: 1_920, pointHeight: 1_080)
     }

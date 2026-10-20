@@ -60,6 +60,7 @@ PRODUCTION_SOURCES=(
     Sources/VisionDeskMac/DockAppLauncher.swift
     Sources/VisionDeskMac/InputOutput.swift
     VisionApp/Services/DisplayGeometry.swift
+    VisionApp/Services/KeyboardDelivery.swift
 )
 CHECK_SOURCES=(Tests/MacBehaviorChecks/*.swift)
 

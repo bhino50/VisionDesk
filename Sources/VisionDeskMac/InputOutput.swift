@@ -164,9 +164,12 @@ final class InputOutput {
         scrollRemainder = ScrollRemainder(); scrollDisplay = nil
     }
 
-    func apply(_ message: DeskMessage) {
+    enum ApplicationResult: String { case posted, busy, rejected, uncertain }
+
+    @discardableResult
+    func apply(_ message: DeskMessage) -> ApplicationResult {
         guard message.isValid, hasPermission, let id = message.displayID,
-              let bounds = displayBounds(id) else { return }
+              let bounds = displayBounds(id) else { return .rejected }
         // Reserve the entire operation before constructing/posting any events, so rejected
         // text cannot be partially typed and click/key pairs cannot be left half-finished.
         let chunks = message.action == "text" ? Self.textChunks(message.text ?? "") : []
@@ -179,7 +182,7 @@ final class InputOutput {
         case "leftUp": cost = 0 // safety release must remain available after exhaustion
         default: cost = 1
         }
-        guard workBudget.reserve(cost, at: uptime()) else { return }
+        guard workBudget.reserve(cost, at: uptime()) else { return .busy }
         if clickDisplay?.id != id || clickDisplay?.bounds != bounds {
             resetClicks()
             clickDisplay = (id, bounds)
@@ -188,14 +191,14 @@ final class InputOutput {
         switch message.action {
         case "move":
             scrollRemainder = ScrollRemainder(); scrollDisplay = nil
-            guard let point else { return }
+            guard let point else { return .rejected }
             if held, let down = clickDown, !Self.near(down.point, point) {
                 clickDown = nil
                 completedClick = nil
             }
             post(isDragging() ? .leftMouseDragged : .mouseMoved, point: point)
         case "leftDown":
-            guard let point, !held else { return }
+            guard let point, !held else { return .rejected }
             // Enigo takes the button down at the cursor's current location, after a separate
             // move, so the view under the pointer sees the hover before the press.
             post(.mouseMoved, point: point)
@@ -204,13 +207,13 @@ final class InputOutput {
                stamp - previous.at <= NSEvent.doubleClickInterval, Self.near(previous.point, point) {
                 clickCount = min(previous.count, Int64.max - 1) + 1
             } else { clickCount = 1 }
-            guard post(.leftMouseDown, point: point, clickCount: clickCount) else { return }
+            guard post(.leftMouseDown, point: point, clickCount: clickCount) else { return .rejected }
             clickDown = (point, stamp)
             completedClick = nil
             held = true
             dragStarted = ProcessInfo.processInfo.systemUptime
         case "leftUp":
-            guard held else { return }
+            guard held else { return .rejected }
             let releasePoint = point ?? currentPoint()
             let stamp = uptime()
             if post(.leftMouseUp, point: releasePoint, clickCount: clickCount),
@@ -222,12 +225,12 @@ final class InputOutput {
             held = false
             dragStarted = nil
         case "rightClick":
-            guard let point else { return }
+            guard let point else { return .rejected }
             release()
             post(.mouseMoved, point: point)
             postAtomically([Step(.rightMouseDown, point, .right), Step(.rightMouseUp, point, .right)])
         case "doubleClick":
-            guard let point else { return }
+            guard let point else { return .rejected }
             release()
             post(.mouseMoved, point: point)
             // Both halves of each pair carry the native count, including the initial click.
@@ -240,13 +243,16 @@ final class InputOutput {
             scroll(deltaX: message.deltaX, deltaY: message.deltaY, point: point)
         case "text":
             completedClick = nil; clickDown = nil
-            for chunk in chunks { type(chunk) }
+            for chunk in chunks {
+                guard type(chunk) else { return .uncertain }
+            }
         case "key":
             completedClick = nil; clickDown = nil
-            guard let name = message.text, let shortcut = Self.keys[name] else { return }
-            press(code: shortcut.0, flags: shortcut.1)
+            guard let name = message.text, let shortcut = Self.keys[name] else { return .rejected }
+            guard press(code: shortcut.0, flags: shortcut.1) else { return .uncertain }
         default: break
         }
+        return .posted
     }
 
     private func resetClicks() {
@@ -364,9 +370,9 @@ final class InputOutput {
 
     /// Unicode events do not change the clipboard or depend on keyboard layout. Both halves are
     /// built before either is posted so a failure cannot leave the virtual key logically down.
-    private func type(_ chunk: [UInt16]) {
+    private func type(_ chunk: [UInt16]) -> Bool {
         guard let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
-              let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) else { return }
+              let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) else { return false }
         for event in [down, up] {
             chunk.withUnsafeBufferPointer { event.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: $0.baseAddress) }
             // Enigo forces the flags on every event because macOS otherwise carries the previous
@@ -375,17 +381,19 @@ final class InputOutput {
             event.flags = []
             eventSink(event)
         }
+        return true
     }
 
     /// Both halves carry the shortcut's flags and both are built before either is posted, so a
     /// failure cannot strand a key or a modifier in the down state.
-    private func press(code: CGKeyCode, flags: CGEventFlags) {
+    private func press(code: CGKeyCode, flags: CGEventFlags) -> Bool {
         guard let down = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: true),
-              let up = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: false) else { return }
+              let up = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: false) else { return false }
         for event in [down, up] {
             event.flags = flags
             eventSink(event)
         }
+        return true
     }
 
     // MARK: - Posting

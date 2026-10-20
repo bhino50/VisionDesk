@@ -108,8 +108,15 @@ public struct DeskMessage: Codable, Equatable, Sendable {
     public var appLaunchSucceeded: Bool?
     public var dockLauncher: Bool?
     public var keepsPairing: Bool?
+    /// Optional negotiated keyboard delivery; success means posted, not application consumption.
+    public var keyboardAcknowledgements: Bool?
+    public var keyboardRequestID: String?
+    public var keyboardResult: String?
 
-    public init(version: Int = 1, kind: String, displays: [DisplayInfo]? = nil, displayID: UInt32? = nil, jpeg: Data? = nil, x: Double? = nil, y: Double? = nil, action: String? = nil, text: String? = nil, deltaX: Double? = nil, deltaY: Double? = nil, status: String? = nil, controlEnabled: Bool? = nil, video: EncodedVideoFrame? = nil, videoCodec: String? = nil, wireFormat: String? = nil, keepsPairing: Bool? = nil, dockApps: [DockAppInfo]? = nil, appID: String? = nil, appRequestID: String? = nil, appLaunchSucceeded: Bool? = nil, dockLauncher: Bool? = nil, appPlacement: Bool? = nil) {
+    public init(version: Int = 1, kind: String, displays: [DisplayInfo]? = nil, displayID: UInt32? = nil, jpeg: Data? = nil, x: Double? = nil, y: Double? = nil, action: String? = nil, text: String? = nil, deltaX: Double? = nil, deltaY: Double? = nil, status: String? = nil, controlEnabled: Bool? = nil, video: EncodedVideoFrame? = nil, videoCodec: String? = nil, wireFormat: String? = nil, keepsPairing: Bool? = nil, dockApps: [DockAppInfo]? = nil, appID: String? = nil, appRequestID: String? = nil, appLaunchSucceeded: Bool? = nil, dockLauncher: Bool? = nil, appPlacement: Bool? = nil, keyboardAcknowledgements: Bool? = nil, keyboardRequestID: String? = nil, keyboardResult: String? = nil) {
+        self.keyboardAcknowledgements = keyboardAcknowledgements
+        self.keyboardRequestID = keyboardRequestID
+        self.keyboardResult = keyboardResult
         self.version = version
         self.kind = kind
         self.displays = displays
@@ -134,6 +141,10 @@ public struct DeskMessage: Codable, Equatable, Sendable {
 
     public var isValid: Bool {
         guard version == 1,
+              keyboardAcknowledgements == nil || kind == "capabilities",
+              keyboardRequestID == nil || kind == "input" || kind == "keyboardResult",
+              keyboardRequestID.map({ $0.utf8.count <= 64 && UUID(uuidString: $0) != nil }) ?? true,
+              keyboardResult == nil || kind == "keyboardResult",
               dockApps == nil || kind == "apps",
               appPlacement == nil || kind == "apps",
               dockLauncher == nil || kind == "capabilities",
@@ -156,6 +167,8 @@ public struct DeskMessage: Codable, Equatable, Sendable {
               deltaX.map({ $0.isFinite && abs($0) <= 2_000 }) ?? true,
               deltaY.map({ $0.isFinite && abs($0) <= 2_000 }) ?? true else { return false }
         switch kind {
+        case "keyboardResult":
+            return keyboardRequestID != nil && ["posted", "busy", "rejected", "uncertain"].contains(keyboardResult ?? "")
         case "apps":
             guard let dockApps, dockApps.count <= Self.maximumDockApps else { return false }
             return dockApps.allSatisfy(\.isValid) && Set(dockApps.map(\.id)).count == dockApps.count
@@ -182,7 +195,8 @@ public struct DeskMessage: Codable, Equatable, Sendable {
         case "keyframe":
             return displayID.map { $0 != 0 } ?? false
         case "input":
-            guard let displayID, displayID != 0, let action else { return false }
+            guard let displayID, displayID != 0, let action,
+                  keyboardRequestID == nil || action == "text" || action == "key" else { return false }
             switch action {
             case "move", "leftDown", "leftUp", "rightClick", "doubleClick":
                 return x != nil && y != nil

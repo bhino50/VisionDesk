@@ -31,6 +31,8 @@ final class PointerInput {
         let token: UUID
         let displayID: UInt32
         let mode: ScreenInteractionMode
+        let start: CGPoint
+        let pointerOrigin: CGPoint
         var lastTranslation: CGSize
         var buttonHeld: Bool
     }
@@ -165,19 +167,24 @@ final class PointerInput {
 
     // MARK: Typing
 
+    /// Finish owed pointer input before a keyboard queue takes over the focused app.
+    func prepareKeyboardInput(displayID: UInt32) -> Bool {
+        guard canControl(displayID), flushPendingInput(drain: true) else { return false }
+        releaseGesture()
+        return canControl(displayID)
+    }
+
     func sendText(_ text: String, displayID: UInt32) -> Bool {
         guard canControl(displayID), !text.isEmpty, text.utf8.count <= 4_096 else { return false }
         // Held-back movement is ordered ahead of the text, and a flush that failed has
         // already dropped the session, so there is nothing left to type into.
-        guard flushPendingInput(drain: true) else { return false }
-        releaseGesture()
+        guard prepareKeyboardInput(displayID: displayID) else { return false }
         return send(DeskMessage(kind: "input", displayID: displayID, action: "text", text: text))
     }
 
     func sendKey(_ key: String, displayID: UInt32) {
         guard canControl(displayID), DeskMessage.supportedKeys.contains(key) else { return }
-        guard flushPendingInput(drain: true) else { return }
-        releaseGesture()
+        guard prepareKeyboardInput(displayID: displayID) else { return }
         _ = send(DeskMessage(kind: "input", displayID: displayID, action: "key", text: key))
     }
 
@@ -205,13 +212,14 @@ final class PointerInput {
             // to lift it.
             activeGesture = ActiveGesture(
                 token: token, displayID: displayID, mode: mode,
+                start: start, pointerOrigin: mode == .pointer ? (lastPoints[displayID] ?? start) : start,
                 lastTranslation: .zero, buttonHeld: false
             )
             // A fresh budget, so this first position goes out with no added wait. Starting
             // to point is the moment coalescing may not be felt in.
             cancelPendingInput()
             coalescer.reset()
-            offerMove(displayID: displayID, point: start)
+            offerMove(displayID: displayID, point: activeGesture?.pointerOrigin ?? start)
             if mode == .interact || mode == .direct {
                 // A failed send disconnects, which has already released this gesture; a
                 // revoked gate drops the press. Either way nothing is held on the Mac.
@@ -224,7 +232,15 @@ final class PointerInput {
             }
         }
         guard var gesture = activeGesture, gesture.token == token else { return }
-        if gesture.mode != .scroll {
+        if gesture.mode == .pointer {
+            // Repositioning the hand starts a fresh relative stroke, not a jump to
+            // the new gaze target. Direct interaction remains absolute.
+            let relative = CGPoint(
+                x: min(1, max(0, gesture.pointerOrigin.x + (point.x - gesture.start.x))),
+                y: min(1, max(0, gesture.pointerOrigin.y + (point.y - gesture.start.y)))
+            )
+            offerMove(displayID: displayID, point: relative)
+        } else if gesture.mode != .scroll {
             offerMove(displayID: displayID, point: point)
         } else {
             // Per-callback deltas, so coalescing them by addition is exactly the distance

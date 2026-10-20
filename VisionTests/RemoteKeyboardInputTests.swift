@@ -8,6 +8,22 @@ import XCTest
 /// these lifecycle checks cannot raise a keyboard or steal focus from the app under test.
 @MainActor
 final class RemoteKeyboardInputTests: XCTestCase {
+    func testOnlyTheKeyboardWindowsFocusLossCancelsPendingDeliveryAndComposition() {
+        let view = FocusProbe()
+        var cancellations = 0
+        var sent: [String] = []
+        view.configure(isEnabled: true, focusRequest: UUID(), onText: { sent.append($0); return true },
+                       onKey: { _ in }, onCancel: { cancellations += 1 })
+        view.setMarkedText("pending", selectedRange: NSRange(location: 7, length: 0))
+        NotificationCenter.default.post(name: UIWindow.didResignKeyNotification, object: UIWindow())
+        XCTAssertEqual(cancellations, 0)
+        NotificationCenter.default.post(name: UIWindow.didResignKeyNotification, object: view.probeWindow)
+        XCTAssertEqual(cancellations, 1)
+        XCTAssertEqual(view.text, "")
+        XCTAssertTrue(sent.isEmpty, "Losing the keyboard window cannot commit a candidate to the Mac.")
+        view.endInputSession()
+    }
+
     func testNativeTypingSendsUnicodeImmediatelyAndDoesNotReplayDelegateNotifications() {
         let recorder = Recorder()
         let view = makeView(recorder)
@@ -23,8 +39,8 @@ final class RemoteKeyboardInputTests: XCTestCase {
         let recorder = Recorder()
         let view = makeView(recorder)
         view.insertText("one\r\ntwo\t三\n")
-        XCTAssertEqual(recorder.events, [.text("one"), .key("return"), .text("two"),
-                                         .key("tab"), .text("三"), .key("return")])
+        XCTAssertEqual(recorder.events, [.text("one\r\ntwo\t三\n")],
+                       "The whole edit is admitted atomically; the delivery queue preserves key ordering.")
         view.deleteBackward()
         view.deleteBackward()
         XCTAssertEqual(Array(recorder.events.suffix(2)), [.key("backspace"), .key("backspace")],
@@ -102,7 +118,7 @@ final class RemoteKeyboardInputTests: XCTestCase {
         XCTAssertFalse(view.canBecomeFirstResponder)
     }
 
-    func testCommittedUnicodeFitsWireLimitAndReassemblesExactly() {
+    func testCommittedUnicodeIsAdmittedAsOneCompleteEdit() {
         let recorder = Recorder()
         let view = makeView(recorder)
         let committed = String(repeating: "👩🏽‍💻中文e\u{301}", count: 900)
@@ -111,24 +127,19 @@ final class RemoteKeyboardInputTests: XCTestCase {
             if case .text(let text) = event { return text }
             return nil
         }
-        XCTAssertGreaterThan(chunks.count, 1)
+        XCTAssertEqual(chunks.count, 1, "Only the delivery queue splits an accepted edit.")
         XCTAssertEqual(chunks.joined(), committed)
-        XCTAssertTrue(chunks.allSatisfy { !$0.isEmpty && $0.utf8.count <= 4_096 })
-        XCTAssertTrue(chunks.allSatisfy {
-            DeskMessage(kind: "input", displayID: 1, action: "text", text: $0).isValid
-        })
+        XCTAssertEqual(view.text, "")
     }
 
-    func testRejectedTextStopsTheRestOfTheNativeEditWithoutDelayedReplay() {
+    func testRejectedTextRemainsAvailableWithoutSendingAnyFollowingKeys() {
         let recorder = Recorder()
         recorder.acceptsText = false
         let view = makeView(recorder)
         view.insertText("blocked\nnever")
-        XCTAssertEqual(recorder.events, [.text("blocked")],
-                       "A refused packet cannot be followed by Return or the remaining text.")
-        recorder.acceptsText = true
-        view.insertText("next")
-        XCTAssertEqual(recorder.events, [.text("blocked"), .text("next")])
+        XCTAssertEqual(recorder.events, [.text("blocked\nnever")])
+        XCTAssertEqual(view.text, "blocked\nnever", "A rejected edit is retained rather than erased.")
+        XCTAssertFalse(recorder.events.contains(.key("return")))
     }
 
     func testNativeKeyCommandActionsRouteCanonicalRemoteKeysWithoutLocalEdits() throws {
@@ -300,7 +311,7 @@ final class RemoteKeyboardInputTests: XCTestCase {
         view.insertText("live 🙂")
         view.deleteBackward()
         view.insertText("\n")
-        XCTAssertEqual(recorder.events, [.text("live 🙂"), .key("backspace"), .key("return")])
+        XCTAssertEqual(recorder.events, [.text("live 🙂"), .key("backspace"), .text("\n")])
         configure(view, recorder: recorder, isEnabled: false, focusRequest: token)
         XCTAssertFalse(view.isFirstResponder, "Control loss must dismiss the real native keyboard receiver.")
     }

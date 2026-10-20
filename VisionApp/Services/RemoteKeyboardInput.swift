@@ -11,6 +11,7 @@ struct RemoteKeyboardInput: UIViewRepresentable {
     let focusRequest: UUID
     let onText: (String) -> Bool
     let onKey: (String) -> Void
+    var onCancel: () -> Void = {}
 
     func makeUIView(context: Context) -> RemoteKeyboardTextView {
         let view = RemoteKeyboardTextView()
@@ -20,7 +21,7 @@ struct RemoteKeyboardInput: UIViewRepresentable {
 
     func updateUIView(_ view: RemoteKeyboardTextView, context: Context) {
         view.configure(isEnabled: isEnabled, focusRequest: focusRequest,
-                       onText: onText, onKey: onKey)
+                       onText: onText, onKey: onKey, onCancel: onCancel)
     }
 
     static func dismantleUIView(_ view: RemoteKeyboardTextView, coordinator: ()) {
@@ -41,6 +42,7 @@ class RemoteKeyboardTextView: UITextView, UITextViewDelegate {
     private var mutationDepth = 0
     private var onText: ((String) -> Bool)?
     private var onKey: ((String) -> Void)?
+    private var onCancel: (() -> Void)?
     private let placeholder = UILabel()
 
     private static let commands: [(input: String, modifiers: UIKeyModifierFlags, key: String)] = [
@@ -93,26 +95,31 @@ class RemoteKeyboardTextView: UITextView, UITextViewDelegate {
 
         NotificationCenter.default.addObserver(self, selector: #selector(windowBecameKey(_:)),
                                               name: UIWindow.didBecomeKeyNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(windowResignedKey(_:)),
+                                              name: UIWindow.didResignKeyNotification, object: nil)
     }
 
     required init?(coder: NSCoder) { fatalError("Use init()") }
 
     func configure(isEnabled: Bool, focusRequest: UUID,
-                   onText: @escaping (String) -> Bool, onKey: @escaping (String) -> Void) {
+                   onText: @escaping (String) -> Bool, onKey: @escaping (String) -> Void, onCancel: @escaping () -> Void = {}) {
         guard !inputHasEnded else { return }
         if let previous = self.focusRequest, previous != focusRequest {
             pendingFocus?.cancel()
             pendingFocus = nil
             // Never let a composition from an earlier presentation cross into a new input
             // destination if SwiftUI reuses this UIKit view.
+            self.onCancel?()
             cancelComposition()
         }
         self.focusRequest = focusRequest
         self.onText = onText
         self.onKey = onKey
+        self.onCancel = onCancel
         // UIKit may resign automatically when editability changes. Capture the active
         // keyboard before that mutation so a forced interruption retains its intent.
         let wasFirstResponder = isFirstResponder
+        if inputIsEnabled && !isEnabled { self.onCancel?() }
         inputIsEnabled = isEnabled
         isEditable = isEnabled
         if isEnabled {
@@ -133,6 +140,7 @@ class RemoteKeyboardTextView: UITextView, UITextViewDelegate {
     }
 
     func endInputSession() {
+        onCancel?()
         inputHasEnded = true
         inputIsEnabled = false
         pendingFocus?.cancel()
@@ -142,7 +150,14 @@ class RemoteKeyboardTextView: UITextView, UITextViewDelegate {
         isEditable = false
         onText = nil
         onKey = nil
+        onCancel = nil
         NotificationCenter.default.removeObserver(self)
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { onCancel?() }
+        return resigned
     }
 
     override var canBecomeFirstResponder: Bool {
@@ -152,6 +167,7 @@ class RemoteKeyboardTextView: UITextView, UITextViewDelegate {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window == nil {
+            onCancel?()
             pendingFocus?.cancel()
             pendingFocus = nil
             cancelComposition()
@@ -164,6 +180,13 @@ class RemoteKeyboardTextView: UITextView, UITextViewDelegate {
         guard let changedWindow = notification.object as? UIWindow,
               changedWindow === window else { return }
         scheduleFocusIfNeeded()
+    }
+
+    @objc private func windowResignedKey(_ notification: Notification) {
+        guard let changedWindow = notification.object as? UIWindow,
+              changedWindow === window else { return }
+        onCancel?()
+        cancelComposition()
     }
 
     private func scheduleFocusIfNeeded() {
@@ -244,52 +267,12 @@ class RemoteKeyboardTextView: UITextView, UITextViewDelegate {
         updatePlaceholder()
         guard mutationDepth == 0, inputIsEnabled, !inputHasEnded,
               markedTextRange == nil, let committed = text, !committed.isEmpty else { return }
-        // Clear after the native edit has finished, never while UIKit is constructing marked
-        // text. Clearing before the callbacks also prevents a reentrant SwiftUI update from
-        // treating already-sent text as a new edit.
-        clearLocalText()
-        forward(committed)
-    }
-
-    private func forward(_ committed: String) {
-        var chunk = ""
-        func flush() -> Bool {
-            guard !chunk.isEmpty else { return true }
-            let accepted = onText?(chunk) == true
-            chunk = ""
-            return accepted
-        }
-        for character in committed {
-            let value = String(character)
-            let key: String?
-            switch value {
-            case "\n", "\r", "\r\n": key = "return"
-            case "\t": key = "tab"
-            default: key = nil
-            }
-            if let key {
-                guard flush(), inputIsEnabled, !inputHasEnded else { return }
-                onKey?(key)
-            } else {
-                if chunk.utf8.count + value.utf8.count > 4_096 {
-                    guard flush(), inputIsEnabled, !inputHasEnded else { return }
-                }
-                // Even an unusually large composed Character must respect the protocol's
-                // byte bound. Scalar boundaries preserve every Unicode code point.
-                if value.utf8.count > 4_096 {
-                    for scalar in value.unicodeScalars {
-                        let part = String(scalar)
-                        if chunk.utf8.count + part.utf8.count > 4_096 {
-                            guard flush(), inputIsEnabled, !inputHasEnded else { return }
-                        }
-                        chunk += part
-                    }
-                } else {
-                    chunk += value
-                }
-            }
-        }
-        _ = flush()
+        // The delivery queue accepts the entire edit or none of it. Retain rejected text so
+        // a full queue or unavailable companion cannot silently erase the wearer's paste.
+        mutationDepth += 1
+        let accepted = onText?(committed) == true
+        mutationDepth -= 1
+        if accepted { clearLocalText() }
     }
 
     override var keyCommands: [UIKeyCommand]? {

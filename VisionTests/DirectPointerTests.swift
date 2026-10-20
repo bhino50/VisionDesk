@@ -15,6 +15,33 @@ final class DirectPointerTests: XCTestCase {
         return (input, { messages })
     }
 
+    func testTrackpadRepositioningContinuesFromLastPointerWithoutWarping() {
+        let (input, messages) = pointer()
+        input.placePointer(displayID: 1, at: CGPoint(x: 0.8, y: 0.7))
+        let token = UUID(), start = CGPoint(x: 0.2, y: 0.2)
+        input.updateGesture(token: token, displayID: 1, mode: .pointer,
+                            start: start, point: start, translation: .zero)
+        XCTAssertEqual(messages().last?.x ?? -1, 0.8, accuracy: 0.000001)
+        XCTAssertEqual(messages().last?.y ?? -1, 0.7, accuracy: 0.000001)
+        input.finishGesture(token: token, displayID: 1, mode: .pointer,
+                            start: start, point: CGPoint(x: 0.25, y: 0.3), translation: .zero)
+        XCTAssertEqual(messages().last?.x ?? -1, 0.85, accuracy: 0.000001)
+        XCTAssertEqual(messages().last?.y ?? -1, 0.8, accuracy: 0.000001)
+        XCTAssertFalse(messages().contains { $0.action == "leftDown" || $0.action == "leftUp" })
+    }
+
+    func testTrackpadRelativeMovementClampsToDisplayEdges() {
+        let (input, messages) = pointer()
+        input.placePointer(displayID: 1, at: CGPoint(x: 0.95, y: 0.05))
+        let token = UUID(), start = CGPoint(x: 0.4, y: 0.6)
+        input.updateGesture(token: token, displayID: 1, mode: .pointer,
+                            start: start, point: start, translation: .zero)
+        input.finishGesture(token: token, displayID: 1, mode: .pointer,
+                            start: start, point: CGPoint(x: 0.8, y: 0.2), translation: .zero)
+        XCTAssertEqual(messages().last?.x, 1)
+        XCTAssertEqual(messages().last?.y, 0)
+    }
+
     func testFirstTapAimsAndClicksAndNextTapRetargets() {
         let (input, messages) = pointer()
         for point in [CGPoint(x: 0.2, y: 0.3), CGPoint(x: 0.8, y: 0.7)] {

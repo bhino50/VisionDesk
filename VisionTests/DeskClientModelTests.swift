@@ -16,6 +16,29 @@ import XCTest
 /// prove physical Vision Pro hand-gesture input.
 @MainActor
 final class DeskClientModelTests: XCTestCase {
+    func testLargeKeyboardEditAndFollowingShortcutReachAuthenticatedMacInOrder() async throws {
+        let session = try await controllableSession()
+        defer { session.close() }
+        let paste = String(repeating: "a", count: 8192)
+        XCTAssertTrue(session.model.sendText(paste + "\n世界 👩🏽‍💻", displayID: 1))
+        session.model.sendKey("tab", displayID: 1)
+        try await waitUntil { session.mac.received.last(where: { $0.action == "key" })?.text == "tab" }
+        let input = session.mac.received.filter { $0.kind == "input" }
+        XCTAssertTrue(input.allSatisfy { $0.keyboardRequestID != nil && $0.isValid })
+        XCTAssertEqual(input.filter { $0.action == "text" }.compactMap(\.text).joined(), paste + "世界 👩🏽‍💻")
+        XCTAssertEqual(input.filter { $0.action == "key" }.compactMap(\.text), ["return", "tab"])
+        XCTAssertEqual(session.model.keyboardPendingCount, 0)
+        XCTAssertNil(session.model.keyboardNotice)
+    }
+
+    func testLegacyCompanionShowsKeyboardUpdateNoticeWithoutSendingUnacknowledgedText() async throws {
+        let session = try await controllableSession(keyboardAcknowledgements: false)
+        defer { session.close() }
+        XCTAssertFalse(session.model.sendText("do not lose this", displayID: 1))
+        XCTAssertTrue(session.model.keyboardNotice?.contains("Update") == true)
+        XCTAssertFalse(session.mac.received.contains { $0.kind == "input" && $0.action == "text" })
+    }
+
     func testDiscreteActionsDrainFastScrollBeforeTheirMessage() async throws {
         for action in ["text", "key"] {
             let session = try await controllableSession()
@@ -282,7 +305,10 @@ final class DeskClientModelTests: XCTestCase {
                 XCTAssertEqual(try XCTUnwrap(message.x), pointer.x, accuracy: 1e-9, "\(order)")
                 XCTAssertEqual(try XCTUnwrap(message.y), pointer.y, accuracy: 1e-9, "\(order)")
             }
-            let heldArrived = inputs.contains { $0.x == Double(held.x) && $0.y == Double(held.y) }
+            let heldArrived = inputs.contains {
+                guard let x = $0.x, let y = $0.y else { return false }
+                return abs(x - Double(held.x)) < 1e-9 && abs(y - Double(held.y)) < 1e-9
+            }
             XCTAssertEqual(heldArrived, completed,
                            "\(order): a tap discards the unsent position of a pan it cancels.")
             XCTAssertFalse(inputs.contains { $0.x == Double(tapped.x) && $0.y == Double(tapped.y) },
@@ -1195,7 +1221,7 @@ final class DeskClientModelTests: XCTestCase {
         model.click(displayID: 1, action: "unknown")
         model.sendKey("cmd+q", displayID: 1)
         XCTAssertFalse(model.sendText("", displayID: 1))
-        XCTAssertFalse(model.sendText(String(repeating: "😀", count: 1025), displayID: 1))
+        XCTAssertFalse(model.sendText(String(repeating: "😀", count: KeyboardDelivery.maximumBytes / 4 + 1), displayID: 1))
         model.connect(to: .hostPort(host: "127.0.0.1", port: 9), key: mac.key, name: "Duplicate")
         try await settle()
         XCTAssertEqual(mac.actions.count, count)
@@ -1572,13 +1598,14 @@ final class DeskClientModelTests: XCTestCase {
     /// Brings the client to the state the app is in while a Mac is paired and control is
     /// granted: an active window, a completed handshake, one published display, an actual
     /// status grant and, unless `sendFrame` is false, one decoded JPEG.
-    private func controllableSession(sendFrame: Bool = true) async throws -> Session {
+    private func controllableSession(sendFrame: Bool = true, keyboardAcknowledgements: Bool = true) async throws -> Session {
         let frame = try XCTUnwrap(DeskFixtures.jpeg(), "The platform could not encode a JPEG fixture.")
         // In-memory stores: a Stop pressed here is recorded, and must not reach real preferences.
         let session = Session(model: DeskClientModel(keys: Self.store(MemoryKeychain()),
                                                      preferences: MemoryRememberedMacStore()),
                               mac: MockMac(), scene: UUID(), frame: frame)
         let model = session.model, mac = session.mac
+        mac.keyboardAcknowledgements = keyboardAcknowledgements
         model.updateScene(session.scene, phase: .active)
         do {
             try mac.start()
@@ -1589,7 +1616,7 @@ final class DeskClientModelTests: XCTestCase {
             XCTAssertTrue(mac.publish(displays: [DeskFixtures.display]))
             try await waitUntil { model.display(id: 1) != nil }
             XCTAssertTrue(mac.publishStatus("Mac control enabled", controlEnabled: true))
-            try await waitUntil { model.isMacControlEnabled }
+            try await waitUntil { model.isMacControlEnabled && (!keyboardAcknowledgements || model.keyboard.isSupported) }
             if sendFrame {
                 XCTAssertTrue(mac.sendFrame(frame))
                 try await waitUntil { model.canControl(displayID: 1) }

@@ -1,26 +1,28 @@
 import CoreGraphics
 import Foundation
+import DeskCore
 
 // MARK: Input
 //
-// The rules for gestures, clicks and typing live in `PointerInput`, with the reasoning for each.
-// These entry points keep the surface, the keyboard and the tests talking to one object, and
-// every one of them is gated by this model's `canControl` and sends only through this model's
-// `send`. They hold no state of their own, which is why they can live apart from the model.
+// PointerInput owns gestures and click safety; KeyboardDelivery owns ordered acknowledged
+// typing. Every entry point uses this model's control gate and authenticated connection.
 extension DeskClientModel {
     /// A primary click where this display's pointer already is. Refused until the pointer has
     /// been placed on this display; see `PointerInput.clickAtLastPointer`.
     func clickAtLastPointer(displayID: UInt32) {
+        keyboard.cancel()
         pointer.clickAtLastPointer(displayID: displayID)
     }
 
     /// Pointer mode's native tap: clicks where the pointer already is and never where the tap
     /// landed. See `PointerInput.tapClick`.
     func directTapClick(displayID: UInt32, at point: CGPoint) {
+        keyboard.cancel()
         pointer.directTapClick(displayID: displayID, at: point)
     }
 
     func tapClick(displayID: UInt32, at point: CGPoint) {
+        keyboard.cancel()
         pointer.tapClick(displayID: displayID, at: point)
     }
 
@@ -28,6 +30,7 @@ extension DeskClientModel {
         token: UUID, displayID: UInt32, mode: ScreenInteractionMode,
         start: CGPoint, point: CGPoint, translation: CGSize
     ) {
+        keyboard.cancel()
         pointer.updateGesture(token: token, displayID: displayID, mode: mode,
                               start: start, point: point, translation: translation)
     }
@@ -38,6 +41,7 @@ extension DeskClientModel {
 
     func finishGesture(token: UUID, displayID: UInt32, mode: ScreenInteractionMode,
                        start: CGPoint, point: CGPoint, translation: CGSize) {
+        keyboard.cancel()
         pointer.finishGesture(token: token, displayID: displayID, mode: mode,
                               start: start, point: point, translation: translation)
     }
@@ -51,20 +55,26 @@ extension DeskClientModel {
     }
 
     func click(displayID: UInt32, action: String) {
+        keyboard.cancel()
         pointer.click(displayID: displayID, action: action)
     }
 
     /// Places this display's pointer without clicking, for an activation that has no hand
     /// position to pinch and move with. See `PointerInput.placePointer`.
     func placePointer(displayID: UInt32, at point: CGPoint) {
+        keyboard.cancel()
         pointer.placePointer(displayID: displayID, at: point)
     }
 
+    func cancelKeyboardInput() { keyboard.cancel() }
+
     func sendText(_ text: String, displayID: UInt32) -> Bool {
-        pointer.sendText(text, displayID: displayID)
+        guard !text.isEmpty, pointer.prepareKeyboardInput(displayID: displayID) else { return false }
+        return keyboard.enqueueText(text, displayID: displayID)
     }
 
     func sendKey(_ key: String, displayID: UInt32) {
-        pointer.sendKey(key, displayID: displayID)
+        guard DeskMessage.supportedKeys.contains(key), pointer.prepareKeyboardInput(displayID: displayID) else { return }
+        keyboard.enqueueKey(key, displayID: displayID)
     }
 }

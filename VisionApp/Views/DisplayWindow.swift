@@ -89,7 +89,7 @@ private struct ConnectedDisplay: View {
                     }
                 }
                 .padding(10)
-                .frame(width: 680)
+                .frame(width: 560)
                 .glassBackgroundEffect()
                 .padding(.bottom, 8)
             }
@@ -105,7 +105,7 @@ private struct ConnectedDisplay: View {
                     }
                 }
                 .padding(10)
-                .frame(width: 680)
+                .frame(width: 560)
                 .glassBackgroundEffect()
                 .padding(.top, 8)
             }
@@ -173,7 +173,9 @@ private struct ConnectedDisplay: View {
                         .disabled(!model.canPlacePointer(displayID: stream.id))
                     } label: {
                         Label("Mouse", systemImage: "computermouse")
+                            .labelStyle(.iconOnly)
                     }
+                    .help("Mouse actions")
                     .accessibilityHint("Click actions use the last pointer position on this screen.")
                     if model.controlSummary.action == .requestControl {
                         Button("Request Control", action: model.resumeControl)
@@ -219,11 +221,15 @@ private struct ConnectedDisplay: View {
                 Button("Dock", systemImage: "dock.rectangle") {
                     accessory = accessory == .dock ? nil : .dock
                 }
+                .labelStyle(.iconOnly)
+                .help("Mac Dock apps")
                 .accessibilityLabel("Mac Dock apps")
             }
             Button("Keyboard", systemImage: "keyboard") {
                 accessory = accessory == .keyboard ? nil : .keyboard
             }
+            .labelStyle(.iconOnly)
+            .help("Keyboard")
             .accessibilityLabel("Text and keyboard shortcuts")
             Menu {
                 Button(focusView ? "Show screen details" : "Focus view",
@@ -374,7 +380,7 @@ private struct DisplaySurface: View {
                         .scaledToFit()
                         .frame(width: geometry.size.width, height: geometry.size.height)
                 }
-                if model.canControl(displayID: stream.id),
+                if mode != .pointer, model.canControl(displayID: stream.id),
                    let rect = DisplayGeometry.imageRect(in: geometry.size, image: stream.imageSize) {
                     // Local target feedback follows the hand immediately. The streamed Mac
                     // cursor remains authoritative; this ring is only the current pinch target.
@@ -596,8 +602,18 @@ private struct KeyboardPanel: View {
                     .fixedSize(horizontal: false, vertical: true)
                 RemoteKeyboardInput(isEnabled: enabled, focusRequest: focusRequest,
                                     onText: { model.sendText($0, displayID: displayID) },
-                                    onKey: { model.sendKey($0, displayID: displayID) })
+                                    onKey: { model.sendKey($0, displayID: displayID) },
+                                    onCancel: { model.cancelKeyboardInput() })
                     .frame(height: 92)
+                if let notice = model.keyboardNotice {
+                    Text(notice)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("keyboard-delivery-notice")
+                } else if model.keyboardPendingCount > 0 {
+                    Label("Sending keyboard input…", systemImage: "keyboard")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if !enabled {
                     Text(SessionCopy.keyboardPaused(isWindowActive: scenePhase == .active,
                                                     canControlMac: model.canControl,

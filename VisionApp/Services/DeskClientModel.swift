@@ -70,6 +70,9 @@ final class DeskClientModel: ObservableObject {
     /// Gestures, clicks and typing. Gated by this model and sending only through it. Internal
     /// only so the entry points in `DeskClientModel+Input.swift` can forward to it.
     let pointer = PointerInput()
+    let keyboard = KeyboardDelivery()
+    @Published private(set) var keyboardNotice: String?
+    @Published private(set) var keyboardPendingCount = 0
     let dockLauncher: MacDockLauncherModel
     /// Inbound silence for the current session; see `checkMacResponsiveness`.
     private var monitor: LinkMonitor
@@ -122,6 +125,11 @@ final class DeskClientModel: ObservableObject {
         dockLauncher.send = { [weak self] in self?.send($0) ?? false }
         dockLauncher.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &subscriptions)
+        keyboard.canControl = { [weak self] id in self?.canControl(displayID: id) ?? false }
+        keyboard.send = { [weak self] in self?.send($0) ?? false }
+        keyboard.onFailure = { [weak self] in self?.keyboardNotice = $0 }
+        keyboard.onAccepted = { [weak self] in self?.keyboardNotice = nil }
+        keyboard.onPendingChanged = { [weak self] in self?.keyboardPendingCount = $0 }
         pointer.canControl = { [weak self] id in self?.canControl(displayID: id) ?? false }
         pointer.isLinked = { [weak self] in self?.isLinked ?? false }
         pointer.send = { [weak self] message in self?.send(message) ?? false }
@@ -185,6 +193,7 @@ final class DeskClientModel: ObservableObject {
         if displayID != nil, !dockLauncher.supportsPlacement { return }
         if let displayID, display(id: displayID) == nil { return }
         // Switching the focused Mac app cannot leave a remote drag held in the old app.
+        keyboard.cancel()
         pointer.releaseGesture()
         dockLauncher.launch(appID: id, displayID: displayID)
     }
@@ -254,6 +263,7 @@ final class DeskClientModel: ObservableObject {
         backgroundDisconnectTask = nil
         if let phase { scenePhases[id] = phase }
         else { scenePhases.removeValue(forKey: id) }
+        if phase != .active { keyboard.cancel() }
         let previouslyActive = hasActiveWindow
         hasActiveWindow = scenePhases.values.contains(.active)
         if hasActiveWindow {
@@ -454,7 +464,7 @@ final class DeskClientModel: ObservableObject {
                 self.dockLauncher.beginSession(id)
                 self.monitor.linked(at: Self.now())
                 self.rememberIfRequested()
-                _ = self.connection?.send(DeskMessage(kind: "capabilities", videoCodec: DeskMessage.supportedVideoCodec, dockLauncher: true))
+                _ = self.connection?.send(DeskMessage(kind: "capabilities", videoCodec: DeskMessage.supportedVideoCodec, dockLauncher: true, keyboardAcknowledgements: true))
                 self.replayStopIfPending()
                 // Either send above can fail and end this session from inside the call.
                 guard self.connectionID == id else { return }
@@ -495,6 +505,7 @@ final class DeskClientModel: ObservableObject {
     /// inside this call, or this process can end before the Stop leaves, and the next session
     /// with this Mac must still open by repeating it. See `stoppedRoutes`.
     func stopControl() {
+        keyboard.cancel()
         dockLauncher.controlBecameUnavailable()
         if let sessionRoute, stoppedRoutes.insert(sessionRoute).inserted {
             preferences.saveStoppedRoutes(stoppedRoutes)
@@ -663,6 +674,7 @@ final class DeskClientModel: ObservableObject {
         let channel = connection
         let wasLinked = isLinked
         connectionID = nil
+        keyboard.cancel(endSession: true)
         dockLauncher.endSession()
         pointer.releaseGesture()
         if wasLinked, notifiesMac { _ = channel?.send(DeskMessage(kind: "stop")) }
@@ -704,6 +716,10 @@ final class DeskClientModel: ObservableObject {
         // `version == 1`, so this is not weaker than the explicit version check it replaces.
         guard isLinked, message.isValid else { return }
         switch message.kind {
+        case "capabilities":
+            if message.keyboardAcknowledgements == true { keyboard.enable() }
+        case "keyboardResult":
+            keyboard.receive(message)
         case "apps", "appLaunchResult":
             dockLauncher.receive(message)
         case "displays":
@@ -720,6 +736,7 @@ final class DeskClientModel: ObservableObject {
             // Only this authenticated session can say so; a Bonjour record can be published by anyone.
             if message.keepsPairing == true { macKeepsPairing() }
             if message.controlEnabled == false {
+                keyboard.cancel()
                 isMacControlEnabled = false
                 stopAwaitingAcknowledgement = false
                 pointer.releaseGesture()
@@ -754,6 +771,9 @@ final class DeskClientModel: ObservableObject {
         // `isValid` also rules out id 0, oversized pixel sizes, and a pointWidth or
         // pointHeight that would make every coordinate unmappable on the Mac.
         let valid = infos.filter { $0.isValid && ids.insert($0.id).inserted }
+        if displays.count != valid.count || displays.contains(where: { stream in
+            !valid.contains(where: { $0.id == stream.info.id && !Self.mapsPositionsDifferently(stream.info, $0) })
+        }) { keyboard.cancel() }
         if let active = pointer.activeDisplayID, !valid.contains(where: { $0.id == active }) {
             pointer.releaseGesture()
             guard isLinked else { return }
@@ -814,6 +834,7 @@ final class DeskClientModel: ObservableObject {
         heartbeatTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self, self.isLinked else { return }
+                self.keyboard.validateAvailability()
                 if let active = self.pointer.activeDisplayID,
                    !self.canControl(displayID: active) {
                     self.pointer.releaseGesture()
@@ -848,6 +869,7 @@ final class DeskClientModel: ObservableObject {
         case .quiet:
             if isMacResponsive {
                 isMacResponsive = false
+                keyboard.cancel()
                 dockLauncher.controlBecameUnavailable()
             }
             return true

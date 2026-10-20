@@ -36,6 +36,7 @@ final class MockMac {
     /// enabled" and re-arms the grant unless a Stop from the headset paused it, the first
     /// heartbeat of a re-armed session enables control, a Stop pauses and answers "not enabled",
     /// and a Resume request grants. Off by default, so every other test drives grants by hand.
+    var keyboardAcknowledgements = true
     var emulatesConsent = false
     /// Models a Mac whose pairing outlives its sessions, as a persistent LAN listener's does: every
     /// status it sends carries `keepsPairing: true`, and each session opens with the attach status
@@ -85,6 +86,13 @@ final class MockMac {
             // not disturb its session bookkeeping.
             connection.onMessage = { [weak self] message in
                 guard let self, self.unheardSession != session else { return }
+                if message.kind == "capabilities", message.keyboardAcknowledgements == true, self.keyboardAcknowledgements {
+                    connection.send(DeskMessage(kind: "capabilities", videoCodec: DeskMessage.supportedVideoCodec,
+                                                keyboardAcknowledgements: true))
+                }
+                if message.kind == "input", let request = message.keyboardRequestID, self.keyboardAcknowledgements {
+                    connection.send(DeskMessage(kind: "keyboardResult", keyboardRequestID: request, keyboardResult: "posted"))
+                }
                 self.received.append(message)
                 self.log.append((session, message))
                 if message.kind == "input", message.action == "leftDown" { self.buttonHeld = true }

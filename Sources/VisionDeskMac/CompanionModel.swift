@@ -121,6 +121,9 @@ final class CompanionModel: ObservableObject {
     var manuallyStopped = false
     private let server = DeskServer()
     let dockAppLauncher: DockAppLauncher
+    private var keyboardReceipts: [UUID: String] = [:]
+    private var keyboardReceiptOrder: [UUID] = []
+    private var peerSupportsKeyboardAcknowledgements = false
     private var peerSupportsDockLauncher = false
     private var appLaunchInFlight = false
     private var appLaunchToken: UUID?
@@ -366,6 +369,8 @@ final class CompanionModel: ObservableObject {
     // Internal so the behavior harness can exercise reconnect consent without opening a socket.
     func attach(_ connection: DeskConnection) {
         input.release(); controlEnabled = false
+        keyboardReceipts.removeAll(); keyboardReceiptOrder.removeAll()
+        peerSupportsKeyboardAcknowledgements = false
         peerSupportsDockLauncher = false; appLaunchInFlight = false; lastAppLaunch = -.infinity; lastAppCatalog = -.infinity
         channel = connection; connected = true; peerUsesVideo = false; peerSupportsVideo = false; lastKeyframeRequest = [:]
         // The headset has the key now, and the screen it sees may show it.
@@ -424,6 +429,8 @@ final class CompanionModel: ObservableObject {
         if manual { if !remoteConfiguration.enabled { setLANAvailability(false) }; manuallyStopped = true; resumeTask?.cancel(); resumeTask = nil; backoff.reset() }
         if !retainKeepAwake { keepAwake.release() }
         peerUsesVideo = false; peerSupportsVideo = false
+        keyboardReceipts.removeAll(); keyboardReceiptOrder.removeAll()
+        peerSupportsKeyboardAcknowledgements = false
         peerSupportsDockLauncher = false; appLaunchInFlight = false
         generation += 1
         input.release(); controlEnabled = false
@@ -456,6 +463,11 @@ final class CompanionModel: ObservableObject {
 
     func receive(_ message: DeskMessage) {
         guard message.isValid else { revoke("Invalid input received. Re-enable locally after checking the client."); return }
+        if message.kind == "capabilities", message.keyboardAcknowledgements == true {
+            peerSupportsKeyboardAcknowledgements = true
+            channel?.send(DeskMessage(kind: "capabilities", videoCodec: DeskMessage.supportedVideoCodec,
+                                      keyboardAcknowledgements: true))
+        }
         if message.kind == "capabilities", message.dockLauncher == true {
             peerSupportsDockLauncher = true
             sendDockApps()
@@ -485,18 +497,37 @@ final class CompanionModel: ObservableObject {
             }
             enableInput(); return
         }
-        guard message.kind == "input", controlEnabled else { return }
+        func keyboardReply(_ result: String) {
+            guard peerSupportsKeyboardAcknowledgements, let request = message.keyboardRequestID else { return }
+            if result != "busy", let id = UUID(uuidString: request), keyboardReceipts[id] == nil {
+                if keyboardReceiptOrder.count >= 64 {
+                    keyboardReceipts.removeValue(forKey: keyboardReceiptOrder.removeFirst())
+                }
+                keyboardReceiptOrder.append(id)
+                keyboardReceipts[id] = result
+            }
+            channel?.send(DeskMessage(kind: "keyboardResult", keyboardRequestID: request, keyboardResult: result))
+        }
+        guard message.kind == "input" else { return }
+        guard message.keyboardRequestID == nil || peerSupportsKeyboardAcknowledgements else { return }
+        guard controlEnabled else { keyboardReply("rejected"); return }
         let now = ProcessInfo.processInfo.systemUptime
-        guard (now - lastHeartbeat) < 1.5 else { releaseForStaleHeartbeat(); return }
+        guard (now - lastHeartbeat) < 1.5 else { keyboardReply("rejected"); releaseForStaleHeartbeat(); return }
         if (now - rateStart) >= 1 { rateStart = now; rateCount = 0 }
         rateCount += 1
-        if rateCount > 240, message.action != "leftUp" { return }
+        if rateCount > 240, message.action != "leftUp" { keyboardReply("busy"); return }
         guard let id = message.displayID, displays.contains(where: { $0.id == id }), CGDisplayIsOnline(id) != 0 else {
+            keyboardReply("rejected")
             revoke("Input exceeded its limits or targeted a disconnected display."); return
         }
-        if !testMode, !input.hasPermission { revoke("Accessibility permission was removed."); return }
+        if !testMode, !input.hasPermission { keyboardReply("rejected"); revoke("Accessibility permission was removed."); return }
+        if let request = message.keyboardRequestID, let id = UUID(uuidString: request),
+           let receipt = keyboardReceipts[id] {
+            keyboardReply(receipt); return
+        }
         inputCount += 1; lastInput = "\(message.action ?? "Input") · display \(id)"
-        if !testMode { input.apply(message) }
+        if testMode { keyboardReply("rejected") }
+        else { keyboardReply(input.apply(message).rawValue) }
     }
 
     private func sendDockApps() {

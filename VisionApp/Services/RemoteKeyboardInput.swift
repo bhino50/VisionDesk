@@ -12,6 +12,7 @@ struct RemoteKeyboardInput: UIViewRepresentable {
     let onText: (String) -> Bool
     let onKey: (String) -> Void
     var onCancel: () -> Void = {}
+    var commands: RemoteKeyboardCommands? = nil
 
     func makeUIView(context: Context) -> RemoteKeyboardTextView {
         let view = RemoteKeyboardTextView()
@@ -20,13 +21,31 @@ struct RemoteKeyboardInput: UIViewRepresentable {
     }
 
     func updateUIView(_ view: RemoteKeyboardTextView, context: Context) {
+        if view.commandRouter !== commands {
+            view.commandRouter?.detach(view)
+            view.commandRouter = commands
+        }
+        commands?.attach(view)
         view.configure(isEnabled: isEnabled, focusRequest: focusRequest,
                        onText: onText, onKey: onKey, onCancel: onCancel)
     }
 
     static func dismantleUIView(_ view: RemoteKeyboardTextView, coordinator: ()) {
+        view.commandRouter?.detach(view)
         view.endInputSession()
     }
+}
+
+/// A panel's buttons use the same native receiver as hardware keys, so they cannot overtake
+/// an edit that the delivery queue has not admitted. The receiver is never retained here.
+@MainActor
+final class RemoteKeyboardCommands: ObservableObject {
+    private weak var receiver: RemoteKeyboardTextView?
+    func attach(_ view: RemoteKeyboardTextView) { receiver = view }
+    func detach(_ view: RemoteKeyboardTextView) {
+        if receiver === view { receiver = nil }
+    }
+    func send(_ key: String) { receiver?.sendRemoteKey(key) }
 }
 
 /// `UITextView` owns marked text and keyboard layout handling. In particular, no physical
@@ -34,6 +53,7 @@ struct RemoteKeyboardInput: UIViewRepresentable {
 /// reach the same `UITextInput` path exactly once.
 @MainActor
 class RemoteKeyboardTextView: UITextView, UITextViewDelegate {
+    weak var commandRouter: RemoteKeyboardCommands?
     private var inputIsEnabled = false
     private var inputHasEnded = false
     private var focusRequest: UUID?
@@ -301,7 +321,21 @@ class RemoteKeyboardTextView: UITextView, UITextViewDelegate {
               let definition = Self.commands.first(where: {
                   $0.input == command.input && $0.modifiers == command.modifierFlags
               }) else { return }
-        onKey?(definition.key)
+        sendRemoteKey(definition.key)
+    }
+
+    func sendRemoteKey(_ key: String) {
+        guard inputIsEnabled, !inputHasEnded else { return }
+        // These two keys edit a local candidate or retained edit before acting on the Mac,
+        // exactly like UIKit's physical and software text-input paths.
+        if key == "backspace" { deleteBackward(); return }
+        if key == "return" { insertText("\n"); return }
+        guard markedTextRange == nil, Self.commands.contains(where: { $0.key == key }) else { return }
+        let destination = focusRequest
+        forwardCommittedText()
+        guard inputIsEnabled, !inputHasEnded, focusRequest == destination,
+              markedTextRange == nil, (text ?? "").isEmpty else { return }
+        onKey?(key)
     }
 
     private func cancelComposition() {

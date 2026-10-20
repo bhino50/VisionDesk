@@ -142,6 +142,44 @@ final class RemoteKeyboardInputTests: XCTestCase {
         XCTAssertFalse(recorder.events.contains(.key("return")))
     }
 
+    func testHardwareCommandCannotOvertakeRejectedTextAndFlushesItFirst() throws {
+        let recorder = Recorder()
+        recorder.acceptsText = false
+        let view = makeView(recorder)
+        view.insertText("hello")
+        let command = try XCTUnwrap(view.keyCommands?.first { $0.propertyList as? String == "left" })
+        let action = try XCTUnwrap(command.action)
+        _ = view.perform(action, with: command)
+        XCTAssertFalse(recorder.events.contains(.key("left")))
+        XCTAssertEqual(view.text, "hello")
+        recorder.acceptsText = true
+        recorder.events.removeAll()
+        _ = view.perform(action, with: command)
+        XCTAssertEqual(recorder.events, [.text("hello"), .key("left")])
+        XCTAssertEqual(view.text, "")
+    }
+
+    func testPanelButtonsUseNativeOrderingAndLocalDeletion() {
+        let recorder = Recorder()
+        recorder.acceptsText = false
+        let view = makeView(recorder)
+        let commands = RemoteKeyboardCommands()
+        commands.attach(view)
+        view.insertText("hello")
+        commands.send("cmd+a")
+        XCTAssertFalse(recorder.events.contains(.key("cmd+a")))
+        commands.send("backspace")
+        XCTAssertEqual(view.text, "hell")
+        XCTAssertFalse(recorder.events.contains(.key("backspace")))
+        recorder.acceptsText = true
+        recorder.events.removeAll()
+        commands.send("tab")
+        XCTAssertEqual(recorder.events, [.text("hell"), .key("tab")])
+        commands.detach(view)
+        commands.send("right")
+        XCTAssertFalse(recorder.events.contains(.key("right")))
+    }
+
     func testNativeKeyCommandActionsRouteCanonicalRemoteKeysWithoutLocalEdits() throws {
         let recorder = Recorder()
         let view = makeView(recorder)

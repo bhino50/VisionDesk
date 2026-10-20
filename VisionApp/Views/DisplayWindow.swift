@@ -568,6 +568,7 @@ private struct KeyboardPanel: View {
     let displayID: UInt32
     @Environment(\.scenePhase) private var scenePhase
     @State private var focusRequest = UUID()
+    @StateObject private var keyboardCommands = RemoteKeyboardCommands()
 
     private let keys: [(label: String, key: String, spoken: String)] = [
         ("Return", "return", "Return"), ("Tab", "tab", "Tab"),
@@ -603,7 +604,8 @@ private struct KeyboardPanel: View {
                 RemoteKeyboardInput(isEnabled: enabled, focusRequest: focusRequest,
                                     onText: { model.sendText($0, displayID: displayID) },
                                     onKey: { model.sendKey($0, displayID: displayID) },
-                                    onCancel: { model.cancelKeyboardInput() })
+                                    onCancel: { model.cancelKeyboardInput() },
+                                    commands: keyboardCommands)
                     .frame(height: 92)
                 if let notice = model.keyboardNotice {
                     Text(notice)
@@ -624,7 +626,7 @@ private struct KeyboardPanel: View {
                 Divider()
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 10) {
                     ForEach(keys, id: \.key) { item in
-                        Button(item.label) { model.sendKey(item.key, displayID: displayID) }
+                        Button(item.label) { keyboardCommands.send(item.key) }
                             .frame(maxWidth: .infinity)
                             .disabled(!enabled)
                             .accessibilityLabel(item.spoken)

@@ -84,6 +84,7 @@ cp "$SOURCE_DIR/script/MacInfo.plist" "$MAC_APP/Contents/Info.plist"
 mkdir -p "$MAC_APP/Contents/Resources/ThirdPartyLicenses"
 cp "$SOURCE_DIR/docs/third-party/ENIGO-LICENSE.txt" "$MAC_APP/Contents/Resources/ThirdPartyLicenses/ENIGO-LICENSE.txt"
 cp "$SOURCE_DIR/LICENSE" "$MAC_APP/Contents/Resources/LICENSE"
+cp "$SOURCE_DIR/script/resources/VisionDesk.icns" "$MAC_APP/Contents/Resources/VisionDesk.icns"
 
 # Xcode accepts a build-setting value as one argument. Its individual compiler arguments are
 # already whitespace-free because compilation uses the neutral temporary source root.

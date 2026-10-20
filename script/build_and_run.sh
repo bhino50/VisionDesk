@@ -50,6 +50,8 @@ trap 'visiondesk_release_staging "$STAGING_DIR" "$STAGED_BUNDLE" "$?" "$STAGED_V
 mkdir -p "$STAGED_BUNDLE/Contents/MacOS"
 cp "$BIN_DIR/$APP_NAME" "$STAGED_BUNDLE/Contents/MacOS/$APP_NAME"
 cp "$ROOT_DIR/script/MacInfo.plist" "$STAGED_BUNDLE/Contents/Info.plist"
+mkdir -p "$STAGED_BUNDLE/Contents/Resources"
+cp "$ROOT_DIR/script/resources/VisionDesk.icns" "$STAGED_BUNDLE/Contents/Resources/VisionDesk.icns"
 # Preserve the upstream license in every distributed app before code signing.
 mkdir -p "$STAGED_BUNDLE/Contents/Resources/ThirdPartyLicenses"
 cp "$ROOT_DIR/docs/third-party/ENIGO-LICENSE.txt" "$STAGED_BUNDLE/Contents/Resources/ThirdPartyLicenses/ENIGO-LICENSE.txt"

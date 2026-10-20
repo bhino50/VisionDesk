@@ -10,15 +10,29 @@ struct VisionDeskApp: App {
             WorkspaceWindow(model: session)
                 .environmentObject(windows)
                 .background(DeskWindowAnchor(registry: windows, key: .overview))
+                .handlesExternalEvents(preferring: [], allowing: [])
         }
+        .handlesExternalEvents(matching: [])
         .defaultSize(width: 820, height: 720)
         .windowResizability(.contentMinSize)
 
         WindowGroup("Mac Display", id: "display", for: UInt32.self) { $displayID in
             DisplayWindow(model: session, displayID: displayID ?? 0)
                 .environmentObject(windows)
-                .background(DeskWindowAnchor(registry: windows, key: .display(displayID ?? 0)))
+                .background {
+                    if let id = displayID, id > 0 {
+                        DeskWindowAnchor(registry: windows, key: .display(id))
+                    }
+                }
+                .onContinueUserActivity(DisplayWindowActivity.activityType) { activity in
+                    if let id = DisplayWindowActivity.displayID(from: activity) { displayID = id }
+                }
+                .handlesExternalEvents(
+                    preferring: displayID.map { [DisplayWindowActivity.target(for: $0)] } ?? [],
+                    allowing: displayID.map { [DisplayWindowActivity.target(for: $0)] } ?? []
+                )
         }
+        .handlesExternalEvents(matching: [DisplayWindowActivity.targetPrefix])
         .defaultSize(width: 900, height: 600)
         .windowStyle(.plain)
         .windowResizability(.contentMinSize)

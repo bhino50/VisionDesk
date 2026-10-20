@@ -12,15 +12,17 @@ final class DeskWindowRegistry: ObservableObject {
         case display(UInt32)
     }
 
-    struct Entry {
+    struct Entry: Equatable {
         let owner: UUID
         let sessionID: String
     }
 
     @Published private(set) var entries: [Key: Entry] = [:]
     @Published private(set) var message: String?
-    private var pending: [Key: TimeInterval] = [:]
+    private struct Opening { let started: TimeInterval; let token: UUID }
+    private var pending: [Key: Opening] = [:]
     private var sessions: [String: UISceneSession] = [:]
+    private var sceneDisconnectObserver: AnyCancellable?
     private let now: () -> TimeInterval
     var activate: (String) -> Void
     var destroy: (String) -> Void
@@ -32,12 +34,23 @@ final class DeskWindowRegistry: ObservableObject {
         self.destroy = destroy ?? { _ in }
         if activate == nil {
             self.activate = { [weak self] id in
-                guard let session = self?.sessions[id] else { return }
+                guard let self else { return }
+                let captured = self.entries.filter { $0.value.sessionID == id }
+                guard let session = self.sessions[id] else {
+                    self.activationFailed(captured)
+                    return
+                }
                 UIApplication.shared.activateSceneSession(for: UISceneSessionActivationRequest(session: session)) { [weak self] _ in
-                    self?.message = "This window could not be brought forward. Find it in your space or close it before opening it again."
+                    self?.activationFailed(captured)
                 }
             }
         }
+        sceneDisconnectObserver = NotificationCenter.default.publisher(for: UIScene.didDisconnectNotification)
+            .sink { [weak self] notification in
+                guard let scene = notification.object as? UIScene else { return }
+                let id = scene.session.persistentIdentifier
+                Task { @MainActor [weak self] in self?.sceneDisconnected(id) }
+            }
         if destroy == nil {
             self.destroy = { [weak self] id in
                 guard let session = self?.sessions[id] else { return }
@@ -46,6 +59,26 @@ final class DeskWindowRegistry: ObservableObject {
                 }
             }
         }
+    }
+
+    /// A failed request must only invalidate the registration it actually attempted.
+    func activationFailed(_ captured: [Key: Entry]) {
+        var removed = false
+        for (key, entry) in captured where entries[key] == entry {
+            entries[key] = nil
+            releaseSession(entry.sessionID)
+            removed = true
+        }
+        if removed {
+            message = "This window could not be opened. Choose the screen again to open a new window."
+        }
+    }
+
+    func sceneDisconnected(_ id: String) {
+        for key in entries.keys.filter({ entries[$0]?.sessionID == id }) {
+            entries[key] = nil
+        }
+        sessions[id] = nil
     }
 
     var openDisplayCount: Int {
@@ -61,9 +94,17 @@ final class DeskWindowRegistry: ObservableObject {
             return
         }
         // A failed native creation must not permanently disable a screen's button.
-        if let started = pending[key], now() - started < 5 { return }
-        pending[key] = now()
+        if let opening = pending[key], now() - opening.started < 5 { return }
+        pending[key] = Opening(started: now(), token: UUID())
         create()
+    }
+
+    func openingToken(for key: Key) -> UUID? { pending[key]?.token }
+
+    func creationFailed(_ key: Key, token: UUID) {
+        guard entries[key] == nil, pending[key]?.token == token else { return }
+        pending[key] = nil
+        message = "This screen could not open. Choose it again to retry."
     }
 
     /// Returns false for a duplicate scene; the bridge closes only that duplicate instance.
@@ -120,6 +161,7 @@ struct DeskWindowAnchor: UIViewRepresentable {
         var registry: DeskWindowRegistry?
         var key: DeskWindowRegistry.Key?
         var boundKey: DeskWindowRegistry.Key?
+        weak var boundRegistry: DeskWindowRegistry?
         var sessionID: String?
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -129,15 +171,31 @@ struct DeskWindowAnchor: UIViewRepresentable {
         func bindAfterViewUpdate() {
             // Registration publishes window state. Defer it beyond SwiftUI's current update.
             Task { @MainActor [weak self] in
-                guard let self, let registry = self.registry, let key = self.key,
-                      let session = self.window?.windowScene?.session else { return }
-                if let previous = self.boundKey, previous != key {
-                    registry.unregister(previous, owner: self.owner)
+                guard let self else { return }
+                let session = self.window?.windowScene?.session
+                self.reconcileBinding(sessionID: session?.persistentIdentifier) {
+                    guard let session, let registry = self.registry, let key = self.key else { return }
+                    registry.attach(key, owner: self.owner, session: session)
                 }
-                self.sessionID = session.persistentIdentifier
-                self.boundKey = key
-                registry.attach(key, owner: self.owner, session: session)
             }
+        }
+
+        /// Deferred callers read the current window, so a same-turn detach/reattach retains it.
+        func reconcileBinding(sessionID nextSessionID: String?, attach: () -> Void) {
+            let sameRegistry = boundRegistry === registry
+            if let previous = boundKey,
+               nextSessionID == nil || previous != key || sessionID != nextSessionID || !sameRegistry {
+                boundRegistry?.unregister(previous, owner: owner)
+                if let sessionID { boundRegistry?.releaseSession(sessionID) }
+                boundKey = nil
+                sessionID = nil
+                boundRegistry = nil
+            }
+            guard let nextSessionID, let registry, let key else { return }
+            sessionID = nextSessionID
+            boundKey = key
+            boundRegistry = registry
+            attach()
         }
     }
 
@@ -156,8 +214,7 @@ struct DeskWindowAnchor: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ view: Anchor, coordinator: ()) {
-        if let registry = view.registry, let key = view.boundKey { registry.unregister(key, owner: view.owner) }
-        if let id = view.sessionID { view.registry?.releaseSession(id) }
+        view.reconcileBinding(sessionID: nil, attach: {})
         view.registry = nil
     }
 }

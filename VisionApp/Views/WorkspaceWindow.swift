@@ -4,7 +4,6 @@ import SwiftUI
 @MainActor
 struct WorkspaceWindow: View {
     @ObservedObject var model: DeskClientModel
-    @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var windows: DeskWindowRegistry
     @State private var largePreviews = false
     @State private var showingWorkspaceHelp = false
@@ -113,7 +112,7 @@ struct WorkspaceWindow: View {
                 .accessibilityHint("Changes the preview size in this overview. Your display windows stay open.")
                 Button {
                     for display in model.displays {
-                        windows.open(.display(display.id)) { openWindow(id: "display", value: display.id) }
+                        openDisplay(display.id)
                     }
                 } label: {
                     Label(windows.openDisplayCount > 0 ? "Show All" : "Open All", systemImage: "square.grid.2x2")
@@ -122,7 +121,7 @@ struct WorkspaceWindow: View {
                 .disabled(model.displays.isEmpty)
             }
 
-            Label("Choose a screen to open or return to its window.", systemImage: "hand.draw")
+            Label("Tap a screen, or pinch and hold its preview and drag it into your space.", systemImage: "hand.draw")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -161,12 +160,21 @@ struct WorkspaceWindow: View {
                                   spacing: 16) {
                             ForEach(model.displays) { display in
                                 DisplayOverviewCard(stream: display, number: displayNumber(display.id), isOpen: windows.isOpen(display.id)) {
-                                    windows.open(.display(display.id)) { openWindow(id: "display", value: display.id) }
+                                    openDisplay(display.id)
                                 }
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private func openDisplay(_ id: UInt32) {
+        windows.open(.display(id)) {
+            guard let token = windows.openingToken(for: .display(id)) else { return }
+            DisplayWindowActivity.open(displayID: id) {
+                windows.creationFailed(.display(id), token: token)
             }
         }
     }
@@ -249,10 +257,12 @@ private struct DisplayOverviewCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 22))
         }
         .buttonStyle(.plain)
+        .onDrag { DisplayWindowActivity.itemProvider(displayID: stream.id) }
         .hoverEffect(.highlight)
         .accessibilityLabel("Open screen \(number), \(stream.info.name)")
         .accessibilityValue(stream.isFresh() ? "Live" : "Waiting for a fresh frame")
-        .help("Open \(stream.info.name)")
+        .accessibilityHint("Tap to open, or pinch and hold and drag into empty space to open a window.")
+        .help("Tap to open, or drag into your space")
     }
 }
 

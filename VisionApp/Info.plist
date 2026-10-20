@@ -10,6 +10,10 @@
     <array>
         <string>_visiondesk._tcp</string>
     </array>
+    <key>NSUserActivityTypes</key>
+    <array>
+        <string>org.visiondesk.open-display</string>
+    </array>
     <key>UIApplicationSceneManifest</key>
     <dict>
         <key>UIApplicationSupportsMultipleScenes</key>

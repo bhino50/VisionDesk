@@ -69,4 +69,88 @@ final class DeskWindowRegistryTests: XCTestCase {
         registry.unregister(.display(1), owner: old)
         XCTAssertEqual(registry.entries[.display(1)]?.owner, replacement)
     }
+    func testMissingNativeSessionCanBeOpenedAgain() {
+        let registry = DeskWindowRegistry()
+        registry.register(.display(1), owner: UUID(), sessionID: "stale")
+        var created = 0
+        registry.open(.display(1)) { created += 1 }
+        XCTAssertFalse(registry.isOpen(1))
+        XCTAssertNotNil(registry.message)
+        registry.open(.display(1)) { created += 1 }
+        XCTAssertEqual(created, 1)
+    }
+
+    func testLateActivationFailurePreservesReplacementRegistration() {
+        let registry = DeskWindowRegistry()
+        registry.register(.display(1), owner: UUID(), sessionID: "old")
+        let captured = registry.entries
+        registry.sceneDisconnected("old")
+        let replacement = UUID()
+        registry.register(.display(1), owner: replacement, sessionID: "new")
+        registry.activationFailed(captured)
+        XCTAssertEqual(registry.entries[.display(1)]?.owner, replacement)
+        XCTAssertNil(registry.message)
+    }
+
+    func testSceneDisconnectReleasesOnlyItsWindows() {
+        let registry = DeskWindowRegistry()
+        registry.register(.display(1), owner: UUID(), sessionID: "one")
+        registry.register(.display(2), owner: UUID(), sessionID: "two")
+        registry.sceneDisconnected("one")
+        XCTAssertFalse(registry.isOpen(1))
+        XCTAssertTrue(registry.isOpen(2))
+    }
+
+    func testAnchorDetachReleasesRegistrationAndAllowsReopening() {
+        let registry = DeskWindowRegistry()
+        let anchor = DeskWindowAnchor.Anchor()
+        anchor.registry = registry
+        anchor.key = .display(1)
+        anchor.reconcileBinding(sessionID: "one") {
+            registry.register(.display(1), owner: anchor.owner, sessionID: "one")
+        }
+        anchor.reconcileBinding(sessionID: nil, attach: {})
+        var created = false
+        registry.open(.display(1)) { created = true }
+        XCTAssertTrue(created)
+        XCTAssertNil(anchor.boundKey)
+    }
+
+    func testAnchorReattachmentToSameSessionKeepsWindowAndMoveReplacesIt() {
+        let registry = DeskWindowRegistry(activate: { _ in }, destroy: { _ in })
+        let anchor = DeskWindowAnchor.Anchor()
+        anchor.registry = registry
+        anchor.key = .display(1)
+        for session in ["one", "one", "two"] {
+            anchor.reconcileBinding(sessionID: session) {
+                registry.register(.display(1), owner: anchor.owner, sessionID: session)
+            }
+            XCTAssertEqual(registry.entries[.display(1)]?.sessionID, session)
+        }
+        XCTAssertEqual(registry.openDisplayCount, 1)
+    }
+
+    func testActivationFailureReleasesCapturedEntryForNextTap() {
+        let registry = DeskWindowRegistry(activate: { _ in })
+        registry.register(.display(1), owner: UUID(), sessionID: "one")
+        registry.activationFailed(registry.entries)
+        var created = false
+        registry.open(.display(1)) { created = true }
+        XCTAssertTrue(created)
+    }
+
+    func testDetachedOldAnchorCannotRemoveReplacementOwner() {
+        let registry = DeskWindowRegistry()
+        let anchor = DeskWindowAnchor.Anchor()
+        anchor.registry = registry
+        anchor.key = .display(1)
+        anchor.reconcileBinding(sessionID: "one") {
+            registry.register(.display(1), owner: anchor.owner, sessionID: "one")
+        }
+        let replacement = UUID()
+        registry.register(.display(1), owner: replacement, sessionID: "one")
+        anchor.reconcileBinding(sessionID: nil, attach: {})
+        XCTAssertEqual(registry.entries[.display(1)]?.owner, replacement)
+    }
+
 }

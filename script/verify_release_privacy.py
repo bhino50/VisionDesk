@@ -20,15 +20,23 @@ SOURCE_ROOT_FILES = (
     ".gitignore", "Package.swift", "README.md", "PRIVACY.md", "BUILD.md",
     "LICENSE", "CONTRIBUTING.md", "SECURITY.md",
 )
-SOURCE_DIRECTORIES = ("Sources", "Tests", "VisionTests", "VisionApp", "script")
+SOURCE_DIRECTORIES = ("Sources", "Tests", "VisionTests", "VisionApp", "script", "docs/images")
 SOURCE_DOCUMENTS = (
+    "docs/VISUAL_GUIDE.md",
+    "docs/images/README.md",
+    "docs/images/visiondesk-hero.png",
+    "docs/images/how-it-works.svg",
+    "docs/images/mac-companion.png",
+    "docs/images/vision-pairing.jpg",
+    "docs/images/vision-workspace.jpg",
+    "docs/images/vision-controls.jpg",
     "docs/RUSTDESK_INPUT.md",
     "docs/third-party/README.md",
     "docs/third-party/ENIGO-LICENSE.txt",
     "VisionDesk.xcodeproj/project.pbxproj",
     "VisionDesk.xcodeproj/xcshareddata/xcschemes/VisionDesk.xcscheme",
 )
-SOURCE_SUFFIXES = {".swift", ".sh", ".py", ".plist", ".entitlements", ".json", ".png"}
+SOURCE_SUFFIXES = {".swift", ".sh", ".py", ".plist", ".entitlements", ".json", ".png", ".jpg", ".svg"}
 FORBIDDEN_SUFFIXES = {
     ".mobileprovision", ".provisionprofile", ".p12", ".pfx", ".pem", ".key",
     ".cer", ".xcuserstate", ".log", ".swiftmodule", ".swiftdoc", ".swiftsourceinfo",

@@ -1,6 +1,55 @@
 # VisionDesk
 
+![VisionDesk — your Mac displays, in your space](docs/images/visiondesk-hero.png)
+
+<p align="center">
+  <strong>Up to four Mac displays. A movable Vision Pro window for each one.</strong><br>
+  <a href="https://github.com/bhino50/VisionDesk/releases/tag/v0.2.1">Download the preview</a> ·
+  <a href="BUILD.md">Build &amp; install</a> ·
+  <a href="docs/VISUAL_GUIDE.md">Visual walkthrough</a> ·
+  <a href="LICENSE">MIT licensed</a>
+</p>
+
 VisionDesk shows the physical displays attached to a Mac in separate Apple Vision Pro windows. The Mac companion captures up to four displays, streams hardware H.264 video when available, and accepts optional pointer and keyboard input from the paired headset.
+
+*The cover illustrates the workflow. The app captures below show the real interface with sample state.*
+
+## From your Mac to your space
+
+![Three steps: share connected Mac displays, pair Vision Pro, and open each screen in its own window](docs/images/how-it-works.svg)
+
+| Share your screens | Arrange your workspace | Stay in control |
+| --- | --- | --- |
+| Select up to four existing Mac displays. | Open one screen or use **Open All**. | Pointer, scrolling, and keyboard input are optional. |
+| Pair once on a reachable network. | Move and resize windows with visionOS. | **Stop Control** releases remote input. |
+
+## See the app
+
+### Set up sharing on the Mac
+
+![VisionDesk Mac companion with sharing and selected displays](docs/images/mac-companion.png)
+
+Choose which physical displays to share, start sharing, and reveal the pairing key when needed. The pairing key stays hidden in this documentation capture.
+
+### Pair once on Vision Pro
+
+![VisionDesk pairing interface on visionOS](docs/images/vision-pairing.jpg)
+
+Choose a nearby Mac and enter its pairing key. A successfully paired Mac can be saved for the next session.
+
+### Choose a screen and open its window
+
+![VisionDesk connected overview with four sample display previews](docs/images/vision-workspace.jpg)
+
+Each preview opens a separate display window. **Open All** opens all shared screens, while control and connection details remain in the overview.
+
+### Work inside a display
+
+![A VisionDesk display window with pointer and keyboard controls](docs/images/vision-controls.jpg)
+
+Use the display window's pointer, scrolling, and keyboard controls when Mac control is enabled. The screen content here is a synthetic documentation sample.
+
+*Mac capture: production SwiftUI view rendered with a documentation fixture. Vision Pro captures: production views running in the visionOS Simulator with synthetic display content. These show the interface rather than a physical-headset session. [Capture details](docs/VISUAL_GUIDE.md#about-these-pictures).*
 
 ## Connect
 

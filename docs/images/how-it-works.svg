@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="500" viewBox="0 0 1440 500" role="img" aria-labelledby="title description">
+  <title id="title">From your Mac displays to your space in three steps</title>
+  <desc id="description">Start sharing existing Mac displays, pair your Vision Pro, then open and arrange each screen. Mac control is optional.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#0b1630"/><stop offset="1" stop-color="#162d4b"/></linearGradient>
+    <linearGradient id="screen" x2="1" y2="1"><stop stop-color="#183d67"/><stop offset="1" stop-color="#23566d"/></linearGradient>
+  </defs>
+  <rect width="1440" height="500" rx="28" fill="url(#bg)"/>
+  <g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif">
+    <text x="48" y="58" font-size="18" letter-spacing="3" font-weight="700" fill="#8ddcf2">HOW VISIONDESK WORKS</text>
+    <text x="48" y="103" font-size="31" font-weight="700" fill="#fff">Your existing screens. Each with a place of its own.</text>
+    <g fill="#11253e" stroke="#35506b"><rect x="48" y="137" width="416" height="311" rx="22"/><rect x="512" y="137" width="416" height="311" rx="22"/><rect x="976" y="137" width="416" height="311" rx="22"/></g>
+    <g fill="#7bd7ec"><circle cx="83" cy="173" r="17"/><circle cx="547" cy="173" r="17"/><circle cx="1011" cy="173" r="17"/></g>
+    <g fill="#0b1630" font-size="18" font-weight="700" text-anchor="middle"><text x="83" y="179">1</text><text x="547" y="179">2</text><text x="1011" y="179">3</text></g>
+    <g fill="#fff" font-size="23" font-weight="700"><text x="113" y="181">Share from the Mac</text><text x="577" y="181">Pair your Vision Pro</text><text x="1041" y="181">Open your screens</text></g>
+    <g fill="url(#screen)" stroke="#78cfe7" stroke-width="2"><rect x="133" y="217" width="242" height="123" rx="8"/><rect x="599" y="222" width="242" height="114" rx="26"/></g>
+    <path d="M222 341v17m-31 0h62" stroke="#8fb2c7" stroke-width="7" stroke-linecap="round"/>
+    <g fill="#65b8d6"><rect x="151" y="238" width="62" height="80" rx="3"/><rect x="224" y="238" width="132" height="80" rx="3"/></g>
+    <path d="M622 250q98-29 196 0v37q-1 24-33 22l-42-14h-46l-42 14q-33 2-33-22z" fill="#d8eaf2"/>
+    <path d="M640 254q80-16 160 0v26q0 12-17 10l-43-11h-40l-43 11q-17 2-17-10z" fill="#102b47"/>
+    <g stroke="#7ed1e8" stroke-width="2" fill="url(#screen)"><rect x="1024" y="228" width="138" height="91" rx="8"/><rect x="1176" y="213" width="90" height="121" rx="8"/><rect x="1280" y="232" width="65" height="87" rx="8"/><rect x="1054" y="332" width="110" height="18" rx="4"/></g>
+    <g fill="#b4c9dd" font-size="18"><text x="75" y="389">Choose up to four connected displays.</text><text x="75" y="416">Allow Screen Recording, then Start Sharing.</text><text x="539" y="389">Choose your Mac and enter its pairing key.</text><text x="539" y="416">Next time, connect from your saved Mac.</text><text x="1003" y="389">Open a display, or choose Open All.</text><text x="1003" y="416">Move and resize with visionOS controls.</text></g>
+    <g stroke="#7bd7ec" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M476 290h22m-7-7 7 7-7 7"/><path d="M940 290h22m-7-7 7 7-7 7"/></g>
+    <text x="720" y="480" text-anchor="middle" font-size="17" fill="#9db7ce">Mac control is optional · Enable it on the Mac · Stop Control releases remote input</text>
+  </g>
+</svg>

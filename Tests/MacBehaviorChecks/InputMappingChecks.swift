@@ -167,7 +167,7 @@ func runInputMappingChecks(_ runner: CheckRunner) async {
     }
 
     await runner.check("Live display corners map inside the display's own bounds") {
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
         model.refreshInventory()
         guard let info = model.displays.first else {
             runner.expect(false, "no live display available for mapping")

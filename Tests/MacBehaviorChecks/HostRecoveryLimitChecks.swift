@@ -45,6 +45,7 @@ func runHostRecoveryLimitChecks(_ runner: CheckRunner) async {
         let clock = ManualClock()
         let recorder = KeepAwakeRecorder()
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses, loadRemoteKey: { key },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { throw CheckError.preparationAbandoned },
                                    inventory: { [syntheticDisplay(1)] }, liveSession: { available },
                                    keepAwake: recorder.hold, uptime: { clock.now })
@@ -73,6 +74,7 @@ func runHostRecoveryLimitChecks(_ runner: CheckRunner) async {
         var loads = 0
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses,
                                    loadRemoteKey: { loads += 1; throw CheckError.preparationAbandoned },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { throw CheckError.preparationAbandoned },
                                    inventory: { [syntheticDisplay(1)] }, liveSession: { available },
                                    keepAwake: recorder.hold, uptime: { clock.now })
@@ -96,6 +98,7 @@ func runHostRecoveryLimitChecks(_ runner: CheckRunner) async {
         let gate = PreparationGate()
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses,
                                    loadRemoteKey: { loads += 1; return key },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
                                    inventory: { inventory }, liveSession: { available }, keepAwake: recorder.hold)
         model.start()
@@ -119,6 +122,7 @@ func runHostRecoveryLimitChecks(_ runner: CheckRunner) async {
         let gate = PreparationGate()
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses,
                                    loadRemoteKey: { loads += 1; return key },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
                                    inventory: { inventory }, liveSession: { available }, keepAwake: KeepAwakeRecorder().hold)
         model.start()
@@ -144,6 +148,7 @@ func runHostRecoveryLimitChecks(_ runner: CheckRunner) async {
         let recorder = KeepAwakeRecorder()
         let gate = PreparationGate()
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses, loadRemoteKey: { key },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
                                    inventory: { [syntheticDisplay(1)] }, liveSession: { available },
                                    keepAwake: recorder.hold, uptime: { clock.now })
@@ -172,6 +177,7 @@ func runHostRecoveryLimitChecks(_ runner: CheckRunner) async {
         var loads = 0
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses,
                                    loadRemoteKey: { loads += 1; return key },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { throw CheckError.preparationAbandoned },
                                    inventory: { inventory }, liveSession: { available },
                                    keepAwake: KeepAwakeRecorder().hold, uptime: { clock.now })
@@ -200,6 +206,7 @@ func runHostRecoveryLimitChecks(_ runner: CheckRunner) async {
         let clock = ManualClock()
         let gate = PreparationGate()
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses, loadRemoteKey: { key },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
                                    inventory: { (1...5).map { syntheticDisplay(UInt32($0)) } }, liveSession: { available },
                                    keepAwake: KeepAwakeRecorder().hold, uptime: { clock.now })
@@ -227,6 +234,7 @@ func runHostRecoveryLimitChecks(_ runner: CheckRunner) async {
         let clock = ManualClock()
         let gate = PreparationGate()
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses, loadRemoteKey: { key },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
                                    inventory: { (1...5).map { syntheticDisplay(UInt32($0)) } }, liveSession: { available },
                                    keepAwake: KeepAwakeRecorder().hold, uptime: { clock.now })
@@ -257,6 +265,7 @@ func runHostRecoveryLimitChecks(_ runner: CheckRunner) async {
         let gate = PreparationGate()
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses,
                                    loadRemoteKey: { loads += 1; return key },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
                                    inventory: { inventory }, liveSession: { available },
                                    keepAwake: KeepAwakeRecorder().hold, uptime: { clock.now })
@@ -278,7 +287,7 @@ func runHostRecoveryLimitChecks(_ runner: CheckRunner) async {
         runner.expect(!model.restartPending && loads == 1, "removing the extra display does not override the owner's Stop")
         gate.release()
         await drainMainActor()
-        let local = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned }, inventory: { [syntheticDisplay(1)] })
+        let local = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned }, inventory: { [syntheticDisplay(1)] })
         runner.expect(!local.autoRecoveryArmed, "a nearby host nobody started is not armed")
         local.stop()
     }

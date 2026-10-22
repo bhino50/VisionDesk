@@ -190,6 +190,7 @@ func runRemoteAccessChecks(_ runner: CheckRunner) async {
         var loads = 0, prepared = 0
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: { addresses },
                                    loadRemoteKey: { loads += 1; return PairingKey.generate() },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { prepared += 1; throw CheckError.preparationAbandoned },
                                    inventory: { [syntheticDisplay(1)] }, liveSession: { available }, keepAwake: KeepAwakeRecorder().hold)
         model.start()
@@ -253,7 +254,7 @@ func runRemoteAccessChecks(_ runner: CheckRunner) async {
         turnedOff.attach(unstarted())
         turnedOff.disableRemoteAccess()
         runner.expectEqual(turnedOff.lastHeadsetNotice, HeadsetNotice.remoteTurnedOff, "turning remote access off")
-        let local = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned }, inventory: { [syntheticDisplay(1)] },
+        let local = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned }, inventory: { [syntheticDisplay(1)] },
                                    liveSession: { available })
         local.sharing = true
         local.attach(unstarted())

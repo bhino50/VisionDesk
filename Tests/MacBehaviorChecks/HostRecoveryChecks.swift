@@ -36,6 +36,7 @@ func runHostRecoveryChecks(_ runner: CheckRunner) async {
         let recorder = KeepAwakeRecorder()
         let gate = PreparationGate()
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses, loadRemoteKey: { loads += 1; return key },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
                                    liveSession: { available }, keepAwake: recorder.hold)
         model.start()
@@ -56,6 +57,7 @@ func runHostRecoveryChecks(_ runner: CheckRunner) async {
     await runner.check("A refused recording permission stops retrying and says what to allow") {
         var loads = 0
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses, loadRemoteKey: { loads += 1; return key },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { throw SCStreamError(.userDeclined) }, liveSession: { available },
                                    keepAwake: KeepAwakeRecorder().hold)
         model.screenPermission = true
@@ -73,6 +75,7 @@ func runHostRecoveryChecks(_ runner: CheckRunner) async {
         var loads = 0
         let recorder = KeepAwakeRecorder()
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses, loadRemoteKey: { loads += 1; return key },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { throw CheckError.preparationAbandoned }, liveSession: { available },
                                    keepAwake: recorder.hold)
         recorder.hold.hold()
@@ -93,6 +96,7 @@ func runHostRecoveryChecks(_ runner: CheckRunner) async {
         for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification, NSWorkspace.sessionDidResignActiveNotification] {
             let recorder = KeepAwakeRecorder()
             let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses, loadRemoteKey: { key },
+                                       saveRemoteConfiguration: { _ in },
                                        contentProvider: { throw CheckError.preparationAbandoned }, liveSession: { available },
                                        keepAwake: recorder.hold)
             recorder.hold.hold()
@@ -108,7 +112,7 @@ func runHostRecoveryChecks(_ runner: CheckRunner) async {
     await runner.check("A display notification that leaves the inventory unchanged keeps the session") {
         var inventory = [syntheticDisplay(1), syntheticDisplay(2)]
         let gate = PreparationGate()
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
                                    inventory: { inventory })
         model.start()
         NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -120,7 +124,7 @@ func runHostRecoveryChecks(_ runner: CheckRunner) async {
         runner.expect(model.status.hasPrefix("Could not start sharing"), "the original session continued, got: \(model.status)")
 
         let second = PreparationGate()
-        let restarted = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { await second.waitUntilReleased(); throw CheckError.preparationAbandoned },
+        let restarted = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { await second.waitUntilReleased(); throw CheckError.preparationAbandoned },
                                        inventory: { inventory })
         restarted.start()
         inventory[1] = syntheticDisplay(2, pointWidth: 1_280)
@@ -140,6 +144,7 @@ func runHostRecoveryChecks(_ runner: CheckRunner) async {
         let recorder = KeepAwakeRecorder()
         let gate = PreparationGate()
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses, loadRemoteKey: { loads += 1; return key },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
                                    inventory: { inventory }, liveSession: { available }, keepAwake: recorder.hold)
         model.start()
@@ -162,6 +167,7 @@ func runHostRecoveryChecks(_ runner: CheckRunner) async {
         var loads = 0
         let gate = PreparationGate()
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses, loadRemoteKey: { loads += 1; return key },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
                                    liveSession: { observed }, keepAwake: KeepAwakeRecorder().hold)
         model.start()
@@ -186,6 +192,7 @@ func runHostRecoveryChecks(_ runner: CheckRunner) async {
         var loads = 0
         let gate = PreparationGate()
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses, loadRemoteKey: { loads += 1; return key },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
                                    liveSession: { available }, keepAwake: KeepAwakeRecorder().hold)
         model.start()
@@ -247,6 +254,7 @@ func runHostRecoveryChecks(_ runner: CheckRunner) async {
         var loads = 0
         let gate = PreparationGate()
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses, loadRemoteKey: { loads += 1; return key },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
                                    inventory: { [syntheticDisplay(1)] }, liveSession: { liveReads += 1; return observed },
                                    keepAwake: KeepAwakeRecorder().hold, uptime: { clock.now })
@@ -295,7 +303,7 @@ func runHostRecoveryChecks(_ runner: CheckRunner) async {
     }
 
     await runner.check("A stall past the heartbeat window does not latch granted control off") {
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
         model.testMode = true
         model.connected = true
         model.receive(DeskMessage(kind: "heartbeat"))

@@ -13,7 +13,7 @@ func runHostEfficiencyChecks(_ runner: CheckRunner) async {
     let inventory = ids.map { syntheticDisplay($0) }
 
     await runner.check("Image bursts redraw the companion at most once per watchdog tick") {
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned }, inventory: { inventory })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned }, inventory: { inventory })
         var publications = 0
         let observation = model.objectWillChange.sink { publications += 1 }
         defer { observation.cancel() }
@@ -32,7 +32,7 @@ func runHostEfficiencyChecks(_ runner: CheckRunner) async {
     }
 
     await runner.check("An idle repeat still reaches the headset but never redraws an identical thumbnail") {
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned }, inventory: { inventory })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned }, inventory: { inventory })
         var deliveries = 0
         let delivered = model.imageDelivered.sink { _ in deliveries += 1 }
         defer { delivered.cancel() }
@@ -55,7 +55,7 @@ func runHostEfficiencyChecks(_ runner: CheckRunner) async {
     }
 
     await runner.check("Encoded-frame accounting never redraws the companion") {
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned }, inventory: { inventory })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned }, inventory: { inventory })
         var publications = 0
         let observation = model.objectWillChange.sink { publications += 1 }
         defer { observation.cancel() }
@@ -81,6 +81,7 @@ func runHostEfficiencyChecks(_ runner: CheckRunner) async {
         print("      idle JPEG budget, four displays: \(Int(idleEncodesPerSecond))/s (was \(Int(previousIdleEncodesPerSecond))/s)")
 
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses, loadRemoteKey: { PairingKey.generate() },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { throw CheckError.preparationAbandoned }, inventory: { inventory },
                                    keepAwake: KeepAwakeRecorder().hold)
         runner.expect(!model.isHeadsetAttached, "a fresh host has no headset")
@@ -97,7 +98,7 @@ func runHostEfficiencyChecks(_ runner: CheckRunner) async {
     }
 
     await runner.check("Refreshing an unchanged inventory publishes nothing") {
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned }, inventory: { inventory })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned }, inventory: { inventory })
         var publications = 0
         let observation = model.objectWillChange.sink { publications += 1 }
         defer { observation.cancel() }

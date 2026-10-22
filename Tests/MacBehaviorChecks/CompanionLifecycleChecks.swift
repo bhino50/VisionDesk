@@ -19,7 +19,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
         for (index, error) in errors.enumerated() {
             let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: configuration, localAddresses: checkLocalAddresses, loadRemoteKey: {
                 loads[index] += 1; throw error
-            }, contentProvider: {
+            }, saveRemoteConfiguration: { _ in }, contentProvider: {
                 runner.expect(false, "terminal key error must not start capture")
                 throw CheckError.preparationAbandoned
             })
@@ -42,7 +42,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
             loads += 1
             if loads == 1 { throw CheckError.preparationAbandoned }
             return key
-        }, contentProvider: {
+        }, saveRemoteConfiguration: { _ in }, contentProvider: {
             prepared = true
             throw CheckError.preparationAbandoned
         })
@@ -60,7 +60,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
         var prepared = false
         var loads = 0
         let configuration = RemoteHostConfiguration(enabled: true, address: "100.64.0.77:58271", allowControl: false, keepAwake: false)
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: configuration, localAddresses: checkLocalAddresses, loadRemoteKey: { loads += 1; return nil }, contentProvider: {
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: configuration, localAddresses: checkLocalAddresses, loadRemoteKey: { loads += 1; return nil }, saveRemoteConfiguration: { _ in }, contentProvider: {
             prepared = true
             throw CheckError.preparationAbandoned
         })
@@ -80,7 +80,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
         let configuration = RemoteHostConfiguration(enabled: true, address: "invalid", allowControl: false, keepAwake: false)
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: configuration, localAddresses: checkLocalAddresses, loadRemoteKey: {
             loaded = true; return nil
-        }, contentProvider: {
+        }, saveRemoteConfiguration: { _ in }, contentProvider: {
             prepared = true; throw CheckError.preparationAbandoned
         })
         model.start()
@@ -93,7 +93,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
 
     await runner.check("Stop during asynchronous preparation abandons the session quietly") {
         let gate = PreparationGate()
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: {
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: {
             await gate.waitUntilReleased()
             throw CheckError.preparationAbandoned
         })
@@ -124,14 +124,14 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
     }
 
     await runner.check("Enable input is refused while no headset is connected") {
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
         model.enableInput()
         runner.expect(!model.controlEnabled, "control must stay off with no connection")
         runner.expectEqual(model.status, "Connect the headset before enabling input.", "refusal message")
     }
 
     await runner.check("Enable input is refused when the heartbeat is stale on a live link") {
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
         // Linked, but no heartbeat has ever arrived, so the freshness window must refuse.
         model.connected = true
         model.enableInput()
@@ -140,7 +140,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
     }
 
     await runner.check("Changing the input mode revokes control in both directions") {
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
         runner.expect(!model.testMode, "real control must be the default")
         model.testMode = true
 
@@ -161,7 +161,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
     }
 
     await runner.check("Stop resets sharing, control, pairing key and previews") {
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
         model.sharing = true
         model.busy = true
         model.connected = true
@@ -184,7 +184,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
     }
 
     await runner.check("Revoke releases control while leaving viewing available") {
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
         model.sharing = true
         model.connected = true
         model.controlEnabled = true
@@ -198,7 +198,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
 
     await runner.check("A headset Stop stays stopped until an explicit authorized resume") {
         let configuration = RemoteHostConfiguration(enabled: true, address: "100.64.0.1:58271", allowControl: true, keepAwake: false)
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: configuration, localAddresses: checkLocalAddresses, contentProvider: { throw CheckError.preparationAbandoned })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: configuration, localAddresses: checkLocalAddresses, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
         model.testMode = true
         model.connected = true
         model.receive(DeskMessage(kind: "heartbeat"))
@@ -219,7 +219,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
 
     await runner.check("A remembered viewing-only headset cannot grant itself control") {
         let configuration = RemoteHostConfiguration(enabled: true, address: "100.64.0.1:58271", allowControl: false, keepAwake: false)
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: configuration, localAddresses: checkLocalAddresses, contentProvider: { throw CheckError.preparationAbandoned })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: configuration, localAddresses: checkLocalAddresses, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
         model.testMode = true
         model.connected = true
         model.receive(DeskMessage(kind: "heartbeat"))
@@ -229,7 +229,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
     }
 
     await runner.check("Continuous input updates diagnostics without redrawing the Mac UI for every event") {
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
         model.testMode = true
         model.connected = true
         model.receive(DeskMessage(kind: "heartbeat"))
@@ -250,7 +250,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
     }
 
     await runner.check("Source losses and peer requests cannot force a keyframe storm") {
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
         guard let id = model.displays.first?.id else { runner.expect(false, "a display is required"); return }
         runner.expect(model.requestKeyframe(displayID: id, at: 100), "the first request is admitted")
         for index in 1..<50 {
@@ -263,7 +263,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
 
     await runner.check("A one-time Mac control grant cannot override viewing-only reconnect policy") {
         let configuration = RemoteHostConfiguration(enabled: true, address: "100.64.0.1:58271", allowControl: false, keepAwake: false)
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: configuration, localAddresses: checkLocalAddresses, contentProvider: { throw CheckError.preparationAbandoned })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: configuration, localAddresses: checkLocalAddresses, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
         model.testMode = true
         model.connected = true
         model.receive(DeskMessage(kind: "heartbeat"))
@@ -280,7 +280,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
 
     await runner.check("Headset Stop persists through reconnect and explicit Resume restores owner-approved control") {
         let configuration = RemoteHostConfiguration(enabled: true, address: "100.64.0.1:58271", allowControl: true, keepAwake: false)
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: configuration, localAddresses: checkLocalAddresses, contentProvider: { throw CheckError.preparationAbandoned })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: configuration, localAddresses: checkLocalAddresses, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
         model.testMode = true
         model.connected = true
         model.receive(DeskMessage(kind: "heartbeat"))
@@ -302,7 +302,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
             NSWorkspace.sessionDidResignActiveNotification
         ]
         for name in notifications {
-            let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
+            let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
             model.sharing = true
             model.connected = true
             model.controlEnabled = true
@@ -319,7 +319,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
     }
 
     await runner.check("A display arrangement change stops an active session") {
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
         model.sharing = true
         model.connected = true
         model.controlEnabled = true
@@ -337,7 +337,7 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
     }
 
     await runner.check("Live display inventory is valid, unique and main-display first") {
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
         model.refreshInventory()
 
         runner.expect(!model.displays.isEmpty, "this Mac must report at least one display")

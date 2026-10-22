@@ -2,7 +2,7 @@
 
 ## Data used during a session
 
-The Mac companion captures the physical displays selected by the app's sharing flow. Live screen pixels, display names and geometry, pointer positions, and requested keyboard input are exchanged with the paired headset. Every shared display may show sensitive information present on that display, including other applications and notifications. Start sharing only the desktop content you intend the paired headset to see.
+The Mac companion captures the attached displays or optional extra desktops selected by the app's sharing flow. Live screen pixels, display names and geometry, pointer positions, and requested keyboard input are exchanged with the paired headset. Every shared display may show sensitive information present on that display, including other applications and notifications. Start sharing only the desktop content you intend the paired headset to see.
 
 VisionDesk implements no cloud account, analytics uploader, advertising SDK, relay service, automatic screen archive, or clipboard synchronization. The app does not read a credential store to populate login forms. Screen capture and Mac input use the operating system's Screen Recording and Accessibility permissions.
 
@@ -20,7 +20,7 @@ A securely generated 128-bit pairing secret authenticates the connection using T
 
 Remembered pairing secrets use the operating system Keychain and are not synchronized to other devices by this app. Preferences retain connection names, routes, and availability/control decisions. The person configuring the Mac decides whether remembered sessions may control it. Stop, stale heartbeats, lost permissions, sleep, and disconnection release or suspend input through the app's session controls.
 
-The nearby listener advertises a service name on the local network. Device names and discovery records are therefore visible to other devices on that network. Optional remote hosting binds to an existing Tailscale address; the VPN's routing and access policy remain the owner's responsibility. VisionDesk does not create port-forwarding rules or publish a remote access service on the internet.
+The nearby listener advertises a service name on the local network. Device names and discovery records are therefore visible to other devices on that network. Optional remote hosting binds to an existing, locally assigned private IPv4 or ULA IPv6 address. Use an existing private VPN, such as Tailscale or WireGuard, with a route between the Mac and headset. A private address alone does not establish VPN isolation; the network and VPN routing, firewall, and access policy remain the owner's responsibility. VisionDesk does not create port-forwarding rules or publish a remote access service on the internet.
 
 ## Diagnostics
 

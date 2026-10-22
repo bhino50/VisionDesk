@@ -10,6 +10,7 @@ func runDockDisplayChecks(_ runner: CheckRunner) async {
         let key = PairingKey.generate()
         let model = CompanionModel(lanConfiguration: LANHostConfiguration(enabled: true),
                                    loadLANKey: { key }, saveLANKey: { _ in }, saveLANConfiguration: { _ in },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { throw CheckError.preparationAbandoned },
                                    inventory: { inventory }, liveSession: { available },
                                    keepAwake: KeepAwakeRecorder().hold, screenCaptureAccess: { true },
@@ -49,6 +50,8 @@ func runDockDisplayChecks(_ runner: CheckRunner) async {
     await runner.check("Source selection is bounded, saved only on owner action, and frozen while sharing") {
         var saved: [Set<UInt32>?] = []
         let model = CompanionModel(saveDisplaySelection: { saved.append($0) },
+                                   saveLANConfiguration: { _ in },
+                                   saveRemoteConfiguration: { _ in },
                                    inventory: { (1...5).map { syntheticDisplay(UInt32($0)) } },
                                    liveSession: { available }, keepAwake: KeepAwakeRecorder().hold,
                                    screenCaptureAccess: { true }, controlAccess: controlAccess(false))
@@ -79,6 +82,7 @@ func runDockDisplayChecks(_ runner: CheckRunner) async {
             DisplayCapturePlan.resolve(identities: ["chosen-screen"], current: identities)
         }, lanConfiguration: LANHostConfiguration(enabled: true),
            loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in },
+           saveRemoteConfiguration: { _ in },
            contentProvider: { preparations += 1; throw CheckError.preparationAbandoned },
            inventory: { inventory }, liveSession: { available }, keepAwake: KeepAwakeRecorder().hold,
            screenCaptureAccess: { true }, controlAccess: controlAccess(false))

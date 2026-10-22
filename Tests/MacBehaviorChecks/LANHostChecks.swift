@@ -11,7 +11,7 @@ func runLANHostChecks(_ runner: CheckRunner) async {
     func host(_ storage: RemoteStorageRecorder, configuration: LANHostConfiguration = .disabled,
               save: @escaping (LANHostConfiguration) -> Void = { _ in }) -> CompanionModel {
         CompanionModel(lanConfiguration: configuration, loadLANKey: storage.load, saveLANKey: storage.save, deleteLANKey: storage.delete,
-                       saveLANConfiguration: save, contentProvider: { throw CheckError.preparationAbandoned },
+                       saveLANConfiguration: save, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned },
                        inventory: { [syntheticDisplay(1)] }, liveSession: { available },
                        keepAwake: KeepAwakeRecorder().hold, screenCaptureAccess: { true },
                        controlAccess: controlAccess(true), keyReveal: PairingKeyReveal(onRequest: 0.05, firstPairing: 0.05))
@@ -124,6 +124,7 @@ func runLANHostChecks(_ runner: CheckRunner) async {
         let model = CompanionModel(loadLANKey: { loads += 1; throw PairingKeyStoreError.untrustedItemPolicy },
                                    saveLANKey: { _ in mutations += 1 }, deleteLANKey: { mutations += 1 },
                                    saveLANConfiguration: { _ in },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { runner.expect(false, "rejected credentials must not capture"); throw CheckError.preparationAbandoned },
                                    inventory: { [syntheticDisplay(1)] }, liveSession: { available })
         model.start()
@@ -138,6 +139,7 @@ func runLANHostChecks(_ runner: CheckRunner) async {
         let model = CompanionModel(loadLANKey: { throw PairingKeyStoreError.untrustedItemPolicy },
                                    saveLANKey: { _ in operations.append("save"); throw PairingKeyStoreError.accessDenied(errSecAuthFailed) },
                                    deleteLANKey: { operations.append("delete") }, saveLANConfiguration: { _ in },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { throw CheckError.preparationAbandoned })
         model.resetLANPairing()
         runner.expectEqual(operations, ["delete", "save"], "only confirmed reset bypasses the unusable old item by deleting first")
@@ -150,7 +152,7 @@ func runLANHostChecks(_ runner: CheckRunner) async {
         var saves = 0
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in saves += 1 },
                                    deleteLANKey: { throw PairingKeyStoreError.accessDenied(errSecAuthFailed) },
-                                   saveLANConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
+                                   saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { throw CheckError.preparationAbandoned })
         model.resetLANPairing()
         runner.expect(saves == 0 && model.pairingKey.isEmpty && !model.sharing, "delete refusal cannot rotate or reveal a replacement")
         runner.expect(model.status.contains("old item was kept"), "failure reports preservation")

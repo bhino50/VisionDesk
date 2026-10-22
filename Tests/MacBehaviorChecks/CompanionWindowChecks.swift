@@ -17,6 +17,7 @@ func runCompanionWindowChecks(_ runner: CheckRunner) async {
         let gate = PreparationGate()
         let lifecycle = CompanionWindowLifecycle(activate: { activations += 1 })
         let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses, loadRemoteKey: { loads += 1; return key },
+                                   saveRemoteConfiguration: { _ in },
                                    contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
                                    inventory: { [syntheticDisplay(1)] }, liveSession: { available },
                                    keepAwake: KeepAwakeRecorder().hold)
@@ -48,7 +49,7 @@ func runCompanionWindowChecks(_ runner: CheckRunner) async {
     await runner.check("A remembered nearby host stays available with its window closed") {
         let gate = PreparationGate()
         let lifecycle = CompanionWindowLifecycle(activate: {})
-        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in }, saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
                                    inventory: { [syntheticDisplay(1)] }, liveSession: { available },
                                    keepAwake: KeepAwakeRecorder().hold)
         model.start()

@@ -5,12 +5,12 @@
 <p align="center">
   <strong>Up to four Mac displays. A movable Vision Pro window for each one.</strong><br>
   <a href="https://github.com/bhino50/VisionDesk/releases">Download the preview</a> ·
-  <a href="BUILD.md">Build &amp; install</a> ·
+  <a href="docs/INSTALL.md">Install &amp; connect</a> ·
   <a href="docs/VISUAL_GUIDE.md">Visual walkthrough</a> ·
   <a href="LICENSE">MIT licensed</a>
 </p>
 
-**Preview installation:** the Mac download is ad-hoc signed and unnotarized. The Vision Pro download is unsigned and requires your own Xcode signing and provisioning; it is not a one-click headset installer. See [Build & install](BUILD.md).
+**Preview installation:** the Mac download is ad-hoc signed and unnotarized. The Vision Pro download is unsigned and requires your own Xcode signing and provisioning; it is not a one-click headset installer. Start with [Install & connect](docs/INSTALL.md).
 
 VisionDesk shows attached Mac displays and optional extra desktops in separate Apple Vision Pro windows. The Mac companion captures up to four displays, streams hardware H.264 video when available, and accepts optional pointer and keyboard input from the paired headset.
 
@@ -63,7 +63,9 @@ Use **Point & Click** to tap a target directly or pinch and move to drag. **Trac
 
 The headset can remember a successfully paired Mac. Pairing credentials stay in the devices' Keychains. A stopped or sleeping Mac cannot provide a live stream. Nearby discovery also depends on Local Network permission and network multicast support. Optional remote hosting requires an existing private VPN route configured by the device owner, such as Tailscale or WireGuard. The Mac must advertise a locally assigned private IPv4 or ULA IPv6 address on port 58271; VisionDesk provides no relay, VPN installation, wake, or remote login service.
 
-## Build and install
+## Download and install
+
+Follow [Install & connect](docs/INSTALL.md) for the Mac drag-to-Applications download, Vision Pro setup, first connection, and common fixes. Physical Vision Pro installation requires Xcode and your own Apple signing account.
 
 This repository contains source, synthetic tests, and generic app artwork. It excludes personal diagnostics, desktop captures, saved connection data, developer credentials, and development provisioning profiles.
 
@@ -88,7 +90,7 @@ Screen content and control commands travel over an authenticated encrypted conne
 
 See [PRIVACY.md](PRIVACY.md) for the data boundaries, pairing behavior, and release inspection process. Mac input behavior includes attribution to the MIT-licensed Enigo component; see [third-party attribution](docs/third-party/README.md).
 
-Audio forwarding, independent virtual displays, and automatic login are not implemented.
+Audio forwarding and automatic login are not implemented. Extra desktops are experimental and use an undocumented macOS interface; compatibility can change with macOS updates.
 
 ## License and contributions
 

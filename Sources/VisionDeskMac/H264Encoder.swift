@@ -6,8 +6,8 @@ import VideoToolbox
 
 /// A hardware H.264 compression session for exactly one display, configured for interactive
 /// remote control rather than for recording: real time, no frame reordering, no B-frames, a
-/// keyframe at least every second, and a hard data-rate ceiling so a scene change cannot burst
-/// a slow WAN link into a multi-second backlog.
+/// keyframe at least every second, and a best-effort data-rate limit to reduce bursts on a
+/// slow WAN link. Bounded in-flight frames and downstream queues independently limit backlog.
 ///
 /// The session is driven from the capture queue and torn down from the main actor, so every
 /// piece of mutable state is behind one lock. Nothing is ever emitted after `invalidate()`.
@@ -47,7 +47,7 @@ final class H264Encoder: @unchecked Sendable {
     static let minimumBitRate = 1_500_000
     /// 1920x1080 at 30fps lands just under the 6 Mbit/s ceiling; smaller screens scale down.
     static let bitsPerPixelPerFrame = 0.095
-    /// Hard burst ceiling as a multiple of the average rate, over a one-second window.
+    /// Requested burst ceiling; VideoToolbox may decline this optional property.
     static let burstAllowance = 1.5
     /// Submitting past this many unreturned frames would only build latency the user feels as
     /// lag. Dropping at the source is always better than queueing at the source.

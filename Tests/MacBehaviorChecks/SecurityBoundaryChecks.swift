@@ -12,7 +12,7 @@ func runSecurityBoundaryChecks(_ runner: CheckRunner) async {
         let key = PairingKey.generate()
         let available = HostSessionObservation(onConsole: true, screenLocked: false, displaysAsleep: false)
         @MainActor func model(_ configuration: RemoteHostConfiguration) -> CompanionModel {
-            CompanionModel(remoteConfiguration: configuration, localAddresses: checkLocalAddresses,
+            CompanionModel(saveLANConfiguration: { _ in }, remoteConfiguration: configuration, localAddresses: checkLocalAddresses,
                            loadRemoteKey: { key }, saveRemoteConfiguration: { $0.save(to: defaults) },
                            contentProvider: { throw CheckError.preparationAbandoned },
                            inventory: { [syntheticDisplay(1)] }, liveSession: { available },
@@ -51,7 +51,7 @@ func runSecurityBoundaryChecks(_ runner: CheckRunner) async {
             var saved = RemoteHostConfiguration.disabled
             let original = RemoteHostConfiguration(enabled: true, address: "100.64.0.1:58271", allowControl: true,
                                                    keepAwake: false, ownerPaused: !peerStop, peerPaused: peerStop)
-            let host = CompanionModel(remoteConfiguration: original, localAddresses: { ["100.64.0.1", "100.64.0.2"] },
+            let host = CompanionModel(saveLANConfiguration: { _ in }, remoteConfiguration: original, localAddresses: { ["100.64.0.1", "100.64.0.2"] },
                 loadRemoteKey: { key }, saveRemoteConfiguration: { saved = $0 },
                 contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
                 inventory: { [syntheticDisplay(1)] },
@@ -121,8 +121,9 @@ func runSecurityBoundaryChecks(_ runner: CheckRunner) async {
         var observation = HostSessionObservation(onConsole: true, screenLocked: false, displaysAsleep: true)
         var keyLoads = 0
         let gate = PreparationGate()
-        let host = CompanionModel(remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses,
+        let host = CompanionModel(saveLANConfiguration: { _ in }, remoteConfiguration: checkRemoteConfiguration, localAddresses: checkLocalAddresses,
                                   loadRemoteKey: { keyLoads += 1; return PairingKey.generate() },
+                                  saveRemoteConfiguration: { _ in },
                                   contentProvider: { await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
                                   inventory: { [syntheticDisplay(1)] }, liveSession: { observation },
                                   keepAwake: KeepAwakeRecorder().hold, screenCaptureAccess: { true }, controlAccess: controlAccess(false))

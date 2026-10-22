@@ -1,5 +1,7 @@
 # Build, verification, and installation
 
+For the shortest first-time path, see [Install & connect](docs/INSTALL.md). This document covers development, verification, and release packaging.
+
 ## Requirements
 
 - Apple silicon Mac running macOS 14 or newer.
@@ -41,7 +43,7 @@ The launcher gracefully quits the current companion before replacing its bundle.
 
 Allow Screen Recording for viewing and Accessibility for optional control in System
 Settings → Privacy & Security. Follow macOS's request to reopen the app if shown.
-For a downloaded release, extract the Mac ZIP and move the app to Applications.
+For a downloaded release, open the Mac DMG and drag the app to Applications. The Mac ZIP remains an alternative: extract it and move the app to Applications.
 If macOS blocks this unnotarized preview, review the source/release provenance and use
 the explicit Open Anyway option in Privacy & Security if you choose to trust it.
 Do not disable Gatekeeper globally.
@@ -68,17 +70,19 @@ Successful output in `release/` contains:
 
 | File | Purpose |
 | --- | --- |
+| `VisionDesk-macOS-arm64.dmg` | Drag-to-Applications Mac disk image; same signing limits as the ZIP |
 | `VisionDesk-macOS-arm64.zip` | Ad-hoc signed Mac companion; no developer certificate or notarization |
 | `VisionDesk-visionOS-arm64-unsigned.zip` | Compiled visionOS app requiring the installer's signing/provisioning |
+| `VisionDesk-<version>-source.zip` | Reviewed source snapshot for building and local headset signing |
 | `BUILD.json` | Neutral source inventory digest and build/platform facts |
 | `privacy-scan.json` | Source and archive inspection results without matched values |
-| `SHA256SUMS` | SHA-256 hashes of the two archives and their reports |
+| `SHA256SUMS` | SHA-256 hashes of the app downloads, source archive, and reports |
 
 The Mac app includes the Enigo notice in its resources. Both app archives include the
 VisionDesk MIT license. Verify downloaded checksums with `shasum -a 256 -c SHA256SUMS`
-from the directory containing all five release files.
+from the directory containing all release files. The manifest lists each payload file; it does not hash itself.
 
-The unpacked applications are retained in the same output directory for inspection. Publish only the two ZIPs and their three reports. Do not upload a working directory, Xcode archive, provisioning profile, build log, `.dSYM`, or cache. The release command also checks that ZIP member contents match the inspected application files.
+The unpacked applications are retained in the same output directory for inspection. Publish only the documented DMG, three ZIPs, and three reports. Do not upload a working directory, Xcode archive, provisioning profile, build log, `.dSYM`, or cache. The release command also checks that ZIP member contents match the inspected application files.
 
 To inspect a prepared output again:
 
@@ -93,13 +97,15 @@ If you replace a report after the release command, regenerate `SHA256SUMS` befor
 
 The distributed visionOS ZIP intentionally contains no development provisioning profile, device identifiers, or developer certificate. It cannot be installed directly on a physical headset in that state.
 
-For first-time setup, open `VisionDesk.xcodeproj` in Xcode, add your Apple development
-account, choose the **VisionDesk** scheme, and select your paired, unlocked headset.
-Enable Developer Mode on the headset if Xcode requests it. In the app target's Signing
-& Capabilities, choose your team and a unique bundle identifier, and resolve any
-provisioning errors. Use Product → Run to install and launch.
+For first-time setup, use the source ZIP and run:
 
-Once provisioning is configured, you can generate a local signing project and compile:
+```sh
+./script/setup_vision.sh
+```
+
+The helper opens a separate local Xcode setup project. Follow [Install & connect](docs/INSTALL.md#install-on-apple-vision-pro) to select your team, a unique bundle identifier, and your headset, then use Product → Run. Keep signing changes in that local project; do not commit credentials or personal signing configuration.
+
+For command-line development after provisioning is configured:
 
 ```sh
 VISION_DESK_TEAM_ID=<your-team-id> \
@@ -107,18 +113,15 @@ VISION_DESK_BUNDLE_ID=<your-registered-app-id> \
   ./script/build_vision.sh device
 ```
 
-This command builds to `build/vision-device/Build/Products/Debug-xros/VisionDesk.app`;
-it does not install or launch. Open the generated project, select the physical headset,
-and use Product → Run for installation. The unsigned release ZIP is not a one-tap
-installer, and the simulator build cannot be installed on a headset.
-
-The generator writes signing choices into the local Xcode project. Restore a neutral project before committing:
+This command builds to `build/vision-device/Build/Products/Debug-xros/VisionDesk.app`; it does not install or launch. The lower-level build script can regenerate the tracked Xcode project with your local signing settings. Restore its neutral settings before committing:
 
 ```sh
 env -u VISION_DESK_TEAM_ID \
   VISION_DESK_BUNDLE_ID=org.visiondesk.VisionDesk \
   python3 script/generate_xcode_project.py
 ```
+
+The unsigned release ZIP is a compiled artifact for review or a separately managed signing workflow. It is not a one-tap installer, and the simulator build cannot be installed on a headset.
 
 Keep locally signed development builds and installation diagnostics private. Pair the installed applications afresh if their generic app identity or Keychain namespace differs from a previous build.
 

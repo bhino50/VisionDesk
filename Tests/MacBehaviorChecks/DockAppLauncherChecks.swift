@@ -36,7 +36,7 @@ func runDockAppLauncherChecks(_ runner: CheckRunner) async {
         var completion: (@MainActor (pid_t?) -> Void)?
         let launcher = DockAppLauncher(discover: { [finder] }, open: { _, finish in opens += 1; completion = finish })
         guard let id = launcher.catalog().first?.id else { runner.expect(false, "Finder fixture exists"); return }
-        let model = CompanionModel(saveLANConfiguration: { _ in }, inventory: { [syntheticDisplay(1)] },
+        let model = CompanionModel(saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, inventory: { [syntheticDisplay(1)] },
             liveSession: { HostSessionObservation(onConsole: true, screenLocked: false, displaysAsleep: false) },
             screenCaptureAccess: { true }, controlAccess: controlAccess(true), dockAppLauncher: launcher)
         let connection = DeskConnection(endpoint: .hostPort(host: "127.0.0.1", port: 1), key: PairingKey.generate())
@@ -66,7 +66,7 @@ func runDockAppLauncherChecks(_ runner: CheckRunner) async {
             var opens = 0
             let launcher = DockAppLauncher(discover: { [finder] }, open: { _, finish in opens += 1; finish(123) })
             guard let id = launcher.catalog().first?.id else { continue }
-            let model = CompanionModel(saveLANConfiguration: { _ in }, inventory: { [syntheticDisplay(1)] },
+            let model = CompanionModel(saveLANConfiguration: { _ in }, saveRemoteConfiguration: { _ in }, inventory: { [syntheticDisplay(1)] },
                 liveSession: { HostSessionObservation(onConsole: true, screenLocked: false, displaysAsleep: false) },
                 screenCaptureAccess: { true }, controlAccess: controlAccess(allowed), dockAppLauncher: launcher)
             let connection = DeskConnection(endpoint: .hostPort(host: "127.0.0.1", port: 1), key: PairingKey.generate())

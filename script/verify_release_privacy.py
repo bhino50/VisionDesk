@@ -24,6 +24,7 @@ SOURCE_ROOT_FILES = (
 )
 SOURCE_DIRECTORIES = ("Sources", "Tests", "VisionTests", "VisionApp", "script", "docs/images")
 SOURCE_DOCUMENTS = (
+    "docs/INSTALL.md",
     "docs/VISUAL_GUIDE.md",
     "docs/images/README.md",
     "docs/images/visiondesk-hero.png",

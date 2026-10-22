@@ -143,11 +143,13 @@ for app in (mac, vision):
 CLEAN_APPS
 /usr/bin/codesign --force --sign - --options runtime --timestamp=none "$MAC_APP" > "$WORK_DIR/mac-signing.log" 2>&1
 /usr/bin/codesign --verify --strict "$MAC_APP" >> "$WORK_DIR/mac-signing.log" 2>&1
+bash "$SOURCE_DIR/script/package_mac_dmg.sh" "$MAC_APP" "$STAGE_DIR/VisionDesk-macOS-arm64.dmg" > "$WORK_DIR/mac-dmg.log" 2>&1
 
 python3 - "$SOURCE_DIR" "$STAGE_DIR" "$XCODEBUILD" <<'ARCHIVES'
 import importlib.util
 import json
 from pathlib import Path
+import plistlib
 import subprocess
 import sys
 import zipfile
@@ -164,6 +166,15 @@ for name, app in [("VisionDesk-macOS-arm64.zip", output / "macOS/VisionDeskMac.a
                 info.external_attr = (path.stat().st_mode & 0o777) << 16
                 info.compress_type = zipfile.ZIP_DEFLATED
                 archive.writestr(info, path.read_bytes(), compresslevel=9)
+version = plistlib.loads((root / "script/MacInfo.plist").read_bytes())["CFBundleShortVersionString"]
+source_name = f"VisionDesk-{version}-source.zip"
+with zipfile.ZipFile(output / source_name, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+    for path in module.source_inventory(root):
+        info = zipfile.ZipInfo(f"VisionDesk-{version}/" + path.relative_to(root).as_posix(), date_time=(2020, 1, 1, 0, 0, 0))
+        info.create_system = 3
+        info.external_attr = (path.stat().st_mode & 0o777) << 16
+        info.compress_type = zipfile.ZIP_DEFLATED
+        archive.writestr(info, path.read_bytes(), compresslevel=9)
 toolchain = subprocess.run([sys.argv[3], "-version"], capture_output=True, text=True, check=True).stdout.strip().splitlines()
 report = {
     "sourceDigestSHA256": module.source_digest(root),
@@ -172,6 +183,7 @@ report = {
     "visionOSMinimumVersion": "2.0", "toolchain": toolchain,
     "sourcePathsMapped": True, "personalDevelopmentProfilesIncluded": False,
     "physicalDeviceAcceptance": "separate; not certified by this build",
+    "version": version, "sourceArchive": source_name,
 }
 (output / "BUILD.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
 ARCHIVES
@@ -179,10 +191,12 @@ python3 "$SOURCE_DIR/script/verify_release_privacy.py" --source "$SOURCE_DIR" \
     --artifacts "$STAGE_DIR" --report "$STAGE_DIR/privacy-scan.json" > "$WORK_DIR/final-scan.log"
 python3 - "$STAGE_DIR" <<'HASHES'
 import hashlib
+import json
 from pathlib import Path
 import sys
 root = Path(sys.argv[1])
-names = ["VisionDesk-macOS-arm64.zip", "VisionDesk-visionOS-arm64-unsigned.zip", "BUILD.json", "privacy-scan.json"]
+source_name = json.loads((root / "BUILD.json").read_text())["sourceArchive"]
+names = ["VisionDesk-macOS-arm64.dmg", "VisionDesk-macOS-arm64.zip", "VisionDesk-visionOS-arm64-unsigned.zip", source_name, "BUILD.json", "privacy-scan.json"]
 (root / "SHA256SUMS").write_text("".join(hashlib.sha256((root / name).read_bytes()).hexdigest() + "  " + name + "\n" for name in names))
 HASHES
 mkdir -p "$(dirname "$OUTPUT_DIR")"

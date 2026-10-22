@@ -548,6 +548,8 @@ make_generator_fixture() {
     if [[ "${2:-}" == "with-resources" ]]; then
         : >"$root/VisionApp/Info.plist"
         : >"$root/VisionApp/VisionDesk.entitlements"
+        : >"$root/VisionApp/PrivacyInfo.xcprivacy"
+        : >"$root/Sources/DeskTransport/PrivacyInfo.xcprivacy"
         local icon="$root/VisionApp/Assets.xcassets/AppIcon.solidimagestack"
         mkdir -p "$icon/Front.solidimagestacklayer/Content.imageset" \
             "$icon/Back.solidimagestacklayer/Content.imageset"
@@ -592,6 +594,38 @@ if [[ $LAST_STATUS -eq 0 ]] &&
     generated=0
 fi
 report "generation: complete fixture writes a project carrying the registered identifiers" "$generated"
+
+capture python3 - "$COMPLETE/VisionDesk.xcodeproj/project.pbxproj" <<'PY'
+import plistlib
+import sys
+
+with open(sys.argv[1], "rb") as project_file:
+    objects = plistlib.load(project_file)["objects"]
+for name, expected in (
+    ("VisionDesk", "VisionApp/PrivacyInfo.xcprivacy"),
+    ("DeskTransport", "Sources/DeskTransport/PrivacyInfo.xcprivacy"),
+):
+    target = next(item for item in objects.values()
+                  if item["isa"] == "PBXNativeTarget" and item["name"] == name)
+    copied_paths = [objects[objects[build]["fileRef"]]["path"]
+                    for phase in target["buildPhases"]
+                    if objects[phase]["isa"] == "PBXResourcesBuildPhase"
+                    for build in objects[phase]["files"]]
+    assert copied_paths.count(expected) == 1, (name, copied_paths)
+    assert sum(path.endswith(".xcprivacy") for path in copied_paths) == 1, copied_paths
+PY
+report "generation: app and transport each copy their own privacy manifest into their bundle" "$LAST_STATUS"
+
+for manifest in VisionApp/PrivacyInfo.xcprivacy Sources/DeskTransport/PrivacyInfo.xcprivacy; do
+    NO_MANIFEST="$(make_generator_fixture no-manifest with-resources)"
+    run_generator "$NO_MANIFEST"
+    NO_MANIFEST_HASH="$(project_hash "$NO_MANIFEST")"
+    rm "$NO_MANIFEST/$manifest"
+    run_generator "$NO_MANIFEST"
+    report "generation: missing $manifest preserves an existing project" \
+        "$([[ $LAST_STATUS -ne 0 && "$LAST_OUTPUT" == *"$manifest"* \
+            && "$(project_hash "$NO_MANIFEST")" == "$NO_MANIFEST_HASH" ]] && echo 0 || echo 1)"
+done
 
 NO_ICON="$(make_generator_fixture no-icon with-resources)"
 run_generator "$NO_ICON"

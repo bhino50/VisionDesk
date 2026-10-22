@@ -28,6 +28,11 @@ Do not run the companion directly from the disk image. Updating or changing sign
 
 ## Install on Apple Vision Pro
 
+**Want to install without Xcode?** TestFlight supports installation directly on
+Vision Pro. VisionDesk's TestFlight distribution is being prepared; no invitation
+link is available yet. See [TestFlight status and installation](TESTFLIGHT.md).
+The source-build steps below remain the currently available route.
+
 1. Install full Xcode and its visionOS platform support on the Mac. Extract the source ZIP to a folder you own.
 2. In the extracted folder, open **Terminal** at that folder and run `./script/setup_vision.sh`. This opens a separate local Xcode setup project so your signing choices stay out of the repository's neutral project. This setup step does not install the app by itself. Keep the printed project path and reopen that copy for later builds; running the helper again creates a fresh source copy and new signing setup.
 3. In Xcode, add your Apple development account under **Settings → Accounts**. Select each target—**VisionDesk**, **DeskCore**, **DeskTransport**, and **VisionTests**—and choose the same team in **Signing & Capabilities** with automatic signing. Give the **VisionDesk** app a unique bundle identifier for your copy. Xcode will explain any account or provisioning requirements; resolve these before continuing.

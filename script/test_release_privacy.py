@@ -19,6 +19,19 @@ class ReleasePrivacyTests(unittest.TestCase):
     def setUp(self):
         self.patterns = privacy.detectors(host_addresses=set())
 
+    def test_privacy_manifests_are_included_in_source_inventory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifests = ("VisionApp/PrivacyInfo.xcprivacy",
+                         "Sources/DeskTransport/PrivacyInfo.xcprivacy")
+            for relative in manifests:
+                manifest = root / relative
+                manifest.parent.mkdir(parents=True, exist_ok=True)
+                manifest.write_bytes(plistlib.dumps({"NSPrivacyTracking": False}))
+            inventory = {path.relative_to(root).as_posix()
+                         for path in privacy.source_inventory(root)}
+            self.assertTrue(set(manifests).issubset(inventory))
+
     def test_private_denylist_catches_infrastructure_in_binary_encodings(self):
         with tempfile.TemporaryDirectory() as temporary:
             denylist = Path(temporary) / "private.json"

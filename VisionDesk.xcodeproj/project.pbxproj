@@ -501,6 +501,7 @@
 				<string>33170731DD247CD01DE74EBE</string>
 				<string>05BDBA45CD28DD3601B351F6</string>
 				<string>E6B8BAE157096206BE79309A</string>
+				<string>E5964456EAA52EBB59BD0FBB</string>
 			</array>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
@@ -561,6 +562,37 @@
 			<key>files</key>
 			<array>
 				<string>A1415FB1DFEC18DD00BAA9D6</string>
+			</array>
+			<key>runOnlyForDeploymentPostprocessing</key>
+			<integer>0</integer>
+		</dict>
+		<key>E5964456EAA52EBB59BD0FBB</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>text.xml</string>
+			<key>path</key>
+			<string>Sources/DeskTransport/PrivacyInfo.xcprivacy</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>09323D2081ECAA43D1DDCBFE</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>E5964456EAA52EBB59BD0FBB</string>
+		</dict>
+		<key>563036BEFC6DA67D6E5CD161</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXResourcesBuildPhase</string>
+			<key>buildActionMask</key>
+			<integer>2147483647</integer>
+			<key>files</key>
+			<array>
+				<string>09323D2081ECAA43D1DDCBFE</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<integer>0</integer>
@@ -712,6 +744,7 @@
 			<array>
 				<string>4161882A868DF79C7593114D</string>
 				<string>F29C342F6456632A70743740</string>
+				<string>563036BEFC6DA67D6E5CD161</string>
 			</array>
 			<key>buildRules</key>
 			<array/>
@@ -1230,6 +1263,7 @@
 				<string>D7C771A8A5030A9D3CC7A191</string>
 				<string>B686B038D3B45EE1255BCDEC</string>
 				<string>6C0F81A204E2AFB6CAC2F93D</string>
+				<string>E9FDCE26E91DE1EB23623000</string>
 				<string>87C56CF165B4DAF887A57513</string>
 			</array>
 			<key>sourceTree</key>
@@ -1375,6 +1409,24 @@
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<integer>0</integer>
 		</dict>
+		<key>E9FDCE26E91DE1EB23623000</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>text.xml</string>
+			<key>path</key>
+			<string>VisionApp/PrivacyInfo.xcprivacy</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>8E28ED9AE3B15AC1087FD2C8</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>E9FDCE26E91DE1EB23623000</string>
+		</dict>
 		<key>87C56CF165B4DAF887A57513</key>
 		<dict>
 			<key>isa</key>
@@ -1401,6 +1453,7 @@
 			<integer>2147483647</integer>
 			<key>files</key>
 			<array>
+				<string>8E28ED9AE3B15AC1087FD2C8</string>
 				<string>455BD51EF14F38ED93045375</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>

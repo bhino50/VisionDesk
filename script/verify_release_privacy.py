@@ -24,6 +24,7 @@ SOURCE_ROOT_FILES = (
 )
 SOURCE_DIRECTORIES = ("Sources", "Tests", "VisionTests", "VisionApp", "script", "docs/images")
 SOURCE_DOCUMENTS = (
+    "docs/TESTFLIGHT.md",
     "docs/INSTALL.md",
     "docs/VISUAL_GUIDE.md",
     "docs/images/README.md",
@@ -39,7 +40,7 @@ SOURCE_DOCUMENTS = (
     "VisionDesk.xcodeproj/project.pbxproj",
     "VisionDesk.xcodeproj/xcshareddata/xcschemes/VisionDesk.xcscheme",
 )
-SOURCE_SUFFIXES = {".swift", ".m", ".h", ".sh", ".py", ".plist", ".entitlements", ".json", ".png", ".jpg", ".svg", ".icns"}
+SOURCE_SUFFIXES = {".swift", ".m", ".h", ".sh", ".py", ".plist", ".xcprivacy", ".entitlements", ".json", ".png", ".jpg", ".svg", ".icns"}
 FORBIDDEN_SUFFIXES = {
     ".mobileprovision", ".provisionprofile", ".p12", ".pfx", ".pem", ".key",
     ".cer", ".xcuserstate", ".log", ".swiftmodule", ".swiftdoc", ".swiftsourceinfo",

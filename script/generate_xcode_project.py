@@ -19,6 +19,7 @@ ICON_CATALOG = "VisionApp/Assets.xcassets"
 ICON_STACK = ICON_CATALOG + "/AppIcon.solidimagestack"
 REQUIRED_RESOURCES = (
     "VisionApp/Info.plist", "VisionApp/VisionDesk.entitlements",
+    "VisionApp/PrivacyInfo.xcprivacy", "Sources/DeskTransport/PrivacyInfo.xcprivacy",
     ICON_CATALOG + "/Contents.json",
     ICON_STACK + "/Contents.json",
     ICON_STACK + "/Front.solidimagestacklayer/Contents.json",
@@ -204,6 +205,15 @@ for name in ("DeskCore", "DeskTransport", "VisionDesk"):
         files=framework_builds, runOnlyForDeploymentPostprocessing=0,
     )
     phases = [sources, frameworks]
+    resource_builds = []
+    if name in ("DeskTransport", "VisionDesk"):
+        manifest_path = directory + "/PrivacyInfo.xcprivacy"
+        manifest = obj(
+            name + "-privacy-manifest", "PBXFileReference", lastKnownFileType="text.xml",
+            path=manifest_path, sourceTree="<group>",
+        )
+        OBJECTS[group]["children"].append(manifest)
+        resource_builds.append(obj(name + "-privacy-manifest-build", "PBXBuildFile", fileRef=manifest))
     if is_app:
         catalog = obj(
             "app-assets", "PBXFileReference", lastKnownFileType="folder.assetcatalog",
@@ -211,10 +221,13 @@ for name in ("DeskCore", "DeskTransport", "VisionDesk"):
         )
         OBJECTS[group]["children"].append(catalog)
         catalog_build = obj("app-assets-build", "PBXBuildFile", fileRef=catalog)
+        resource_builds.append(catalog_build)
+    if resource_builds:
         phases.append(obj(
             name + "-resources", "PBXResourcesBuildPhase", buildActionMask=2147483647,
-            files=[catalog_build], runOnlyForDeploymentPostprocessing=0,
+            files=resource_builds, runOnlyForDeploymentPostprocessing=0,
         ))
+    if is_app:
         phases.append(obj(
             name + "-embed-frameworks", "PBXCopyFilesBuildPhase", buildActionMask=2147483647,
             dstPath="", dstSubfolderSpec=10, files=embed_builds,

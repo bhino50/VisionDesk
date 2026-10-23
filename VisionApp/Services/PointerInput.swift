@@ -87,9 +87,10 @@ final class PointerInput {
     /// prevent, and every reconnection reset each display to that guess without the wearer
     /// necessarily noticing. It is refused while any gesture owns the pointer, too, so it can
     /// never interleave with one.
-    func clickAtLastPointer(displayID: UInt32) {
+    func clickAtLastPointer(displayID: UInt32, beforeInput: () -> Void = {}) {
         guard activeGesture == nil, canControl(displayID),
               let point = lastPoints[displayID] else { return }
+        beforeInput()
         leftClick(displayID: displayID, at: point)
     }
 
@@ -111,25 +112,27 @@ final class PointerInput {
     /// A direct spatial tap aims and clicks in one action, including on a fresh display.
     /// An existing gesture keeps ownership, even on this display; the surface arbitrates a
     /// tap against a drag with an exclusive recognizer rather than interrupting a held button.
-    func directTapClick(displayID: UInt32, at point: CGPoint) {
+    func directTapClick(displayID: UInt32, at point: CGPoint, beforeInput: () -> Void = {}) {
         guard activeGesture == nil, canControl(displayID), valid(point) else { return }
+        beforeInput()
         leftClick(displayID: displayID, at: point)
     }
 
-    func tapClick(displayID: UInt32, at point: CGPoint) {
+    func tapClick(displayID: UInt32, at point: CGPoint, beforeInput: () -> Void = {}) {
         guard canControl(displayID), valid(point) else { return }
         if let active = activeGesture {
             guard active.mode == .pointer, active.displayID == displayID else { return }
             cancelGesture(token: active.token)
         }
-        clickAtLastPointer(displayID: displayID)
+        clickAtLastPointer(displayID: displayID, beforeInput: beforeInput)
     }
 
-    func click(displayID: UInt32, action: String) {
+    func click(displayID: UInt32, action: String, beforeInput: () -> Void = {}) {
         // Refused before anything drains or releases: a click this display cannot place must
         // not end another display's gesture on its way to being refused.
         guard activeGesture == nil, canControl(displayID), lastPoints[displayID] != nil,
               ["rightClick", "doubleClick"].contains(action) else { return }
+        beforeInput()
         // Discrete buttons cannot interrupt a gesture. Any remaining queued input must
         // succeed before the click, and the position is read again after that send.
         guard flushPendingInput(drain: true) else { return }
@@ -144,8 +147,9 @@ final class PointerInput {
     /// would otherwise have no way to give a click somewhere to land now that clicks never
     /// guess. The move is the request itself, never a side effect of a click, and like every
     /// click it is refused while any gesture owns the pointer.
-    func placePointer(displayID: UInt32, at point: CGPoint) {
+    func placePointer(displayID: UInt32, at point: CGPoint, beforeInput: () -> Void = {}) {
         guard activeGesture == nil, canControl(displayID), valid(point) else { return }
+        beforeInput()
         move(displayID: displayID, point: point)
     }
 
@@ -192,7 +196,7 @@ final class PointerInput {
 
     func updateGesture(
         token: UUID, displayID: UInt32, mode: ScreenInteractionMode,
-        start: CGPoint, point: CGPoint, translation: CGSize
+        start: CGPoint, point: CGPoint, translation: CGSize, beforeInput: () -> Void = {}
     ) {
         guard !retiredGestureTokens.contains(token) else { return }
         guard canControl(displayID), valid(start),
@@ -206,6 +210,9 @@ final class PointerInput {
         // than interleaved as a leftUp/leftDown storm across two displays.
         if let active = activeGesture,
            active.token != token || active.displayID != displayID || active.mode != mode { return }
+        // Cross-input interruption belongs to an accepted pointer action. In particular,
+        // a late retired/rival recognizer must not discard text queued after it ended.
+        beforeInput()
         if activeGesture == nil {
             // Record the gesture before any pointer event leaves, so every failure path below
             // still has releasable state. A leftUp with no leftDown is the safe direction; a
@@ -283,10 +290,12 @@ final class PointerInput {
     /// arrives with no changed callback is ignored for the same reason; in Pointer mode that
     /// loses nothing, because Pointer clicks come from the native tap rather than from here.
     func finishGesture(token: UUID, displayID: UInt32, mode: ScreenInteractionMode,
-                       start: CGPoint, point: CGPoint, translation: CGSize) {
-        guard activeGesture?.token == token else { return }
+                       start: CGPoint, point: CGPoint, translation: CGSize,
+                       beforeInput: () -> Void = {}) {
+        guard let active = activeGesture, active.token == token,
+              active.displayID == displayID, active.mode == mode else { return }
         updateGesture(token: token, displayID: displayID, mode: mode,
-                      start: start, point: point, translation: translation)
+                      start: start, point: point, translation: translation, beforeInput: beforeInput)
         endGesture(token: token)
     }
 

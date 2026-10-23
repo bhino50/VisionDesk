@@ -48,6 +48,27 @@ If macOS blocks this unnotarized preview, review the source/release provenance a
 the explicit Open Anyway option in Privacy & Security if you choose to trust it.
 Do not disable Gatekeeper globally.
 
+## Repeated control and portrait stress tests
+
+After generating the project, run the control stress suites against a visionOS simulator:
+
+```sh
+python3 script/generate_xcode_project.py
+xcodebuild -project VisionDesk.xcodeproj -scheme VisionDesk \
+  -destination 'platform=visionOS Simulator,name=Apple Vision Pro' \
+  -only-testing:VisionTests/PointerStressTests \
+  -only-testing:VisionTests/KeyboardStressTests \
+  -only-testing:VisionTests/PortraitStreamStressTests \
+  -test-iterations 3 CODE_SIGNING_ALLOWED=NO test
+```
+
+Choose the intended installed simulator when more than one matches that name. These
+bounded, deterministic suites cover pointer ownership and release ordering, scrolling
+under load, Unicode delivery and queue recovery, stale mouse callbacks during typing,
+portrait geometry, delayed decoding, and four-screen resize/hotplug recovery. They use
+synthetic input, in-memory credentials, and local test connections. They do not post
+input to another Mac application or establish physical headset latency or gesture quality.
+
 ## Privacy release
 
 Run after the final source snapshot has passed review and the appropriate tests:

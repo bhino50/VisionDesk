@@ -163,15 +163,17 @@ struct DeskWindowAnchor: UIViewRepresentable {
         var boundKey: DeskWindowRegistry.Key?
         weak var boundRegistry: DeskWindowRegistry?
         var sessionID: String?
+        private var isDismantled = false
         override func didMoveToWindow() {
             super.didMoveToWindow()
             bindAfterViewUpdate()
         }
 
         func bindAfterViewUpdate() {
+            guard !isDismantled else { return }
             // Registration publishes window state. Defer it beyond SwiftUI's current update.
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, !self.isDismantled else { return }
                 let session = self.window?.windowScene?.session
                 self.reconcileBinding(sessionID: session?.persistentIdentifier) {
                     guard let session, let registry = self.registry, let key = self.key else { return }
@@ -182,6 +184,7 @@ struct DeskWindowAnchor: UIViewRepresentable {
 
         /// Deferred callers read the current window, so a same-turn detach/reattach retains it.
         func reconcileBinding(sessionID nextSessionID: String?, attach: () -> Void) {
+            guard !isDismantled else { return }
             let sameRegistry = boundRegistry === registry
             if let previous = boundKey,
                nextSessionID == nil || previous != key || sessionID != nextSessionID || !sameRegistry {
@@ -196,6 +199,27 @@ struct DeskWindowAnchor: UIViewRepresentable {
             boundKey = key
             boundRegistry = registry
             attach()
+        }
+
+        func dismantleAfterViewUpdate() {
+            guard !isDismantled else { return }
+            isDismantled = true
+            let previousRegistry = boundRegistry
+            let previousKey = boundKey
+            let previousSessionID = sessionID
+            let previousOwner = owner
+            // Detach locally now, so a previously queued binding cannot reclaim this view.
+            // Registry removal publishes and must wait until SwiftUI finishes dismantling.
+            registry = nil
+            key = nil
+            boundRegistry = nil
+            boundKey = nil
+            sessionID = nil
+            guard let previousRegistry, let previousKey else { return }
+            Task { @MainActor in
+                previousRegistry.unregister(previousKey, owner: previousOwner)
+                if let previousSessionID { previousRegistry.releaseSession(previousSessionID) }
+            }
         }
     }
 
@@ -214,7 +238,6 @@ struct DeskWindowAnchor: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ view: Anchor, coordinator: ()) {
-        view.reconcileBinding(sessionID: nil, attach: {})
-        view.registry = nil
+        view.dismantleAfterViewUpdate()
     }
 }

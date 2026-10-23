@@ -621,7 +621,7 @@ private struct KeyboardPanel: View {
                 RemoteKeyboardInput(isEnabled: enabled, focusRequest: focusRequest,
                                     onText: { model.sendText($0, displayID: displayID) },
                                     onKey: { model.sendKey($0, displayID: displayID) },
-                                    onCancel: { model.cancelKeyboardInput(displayID: displayID) },
+                                    onCancel: { model.cancelKeyboardInputFromView(displayID: displayID) },
                                     commands: keyboardCommands, destinationID: displayID)
                     .frame(height: 92)
                 Button("Send remaining text", systemImage: "paperplane") {

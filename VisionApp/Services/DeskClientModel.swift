@@ -75,6 +75,18 @@ final class DeskClientModel: ObservableObject {
     let keyboard = KeyboardDelivery()
     @Published private(set) var keyboardNotice: String?
     @Published private(set) var keyboardPendingCount = 0
+    private struct KeyboardPresentation {
+        var pendingCount = 0
+        var notice: String?
+    }
+    private enum KeyboardPresentationChange {
+        case pendingCount(Int)
+        case notice(String?)
+    }
+    private var latestKeyboardPresentation = KeyboardPresentation()
+    private var keyboardViewCancellationDepth = 0
+    private var keyboardPresentationTask: Task<Void, Never>?
+    private var keyboardPresentationGeneration: UInt64 = 0
     let dockLauncher: MacDockLauncherModel
     /// Inbound silence for the current session; see `checkMacResponsiveness`.
     private var monitor: LinkMonitor
@@ -129,9 +141,9 @@ final class DeskClientModel: ObservableObject {
             .store(in: &subscriptions)
         keyboard.canControl = { [weak self] id in self?.canControl(displayID: id) ?? false }
         keyboard.send = { [weak self] in self?.send($0) ?? false }
-        keyboard.onFailure = { [weak self] in self?.keyboardNotice = $0 }
-        keyboard.onAccepted = { [weak self] in self?.keyboardNotice = nil }
-        keyboard.onPendingChanged = { [weak self] in self?.keyboardPendingCount = $0 }
+        keyboard.onFailure = { [weak self] in self?.updateKeyboardPresentation(.notice($0)) }
+        keyboard.onAccepted = { [weak self] in self?.updateKeyboardPresentation(.notice(nil)) }
+        keyboard.onPendingChanged = { [weak self] in self?.updateKeyboardPresentation(.pendingCount($0)) }
         pointer.canControl = { [weak self] id in self?.canControl(displayID: id) ?? false }
         pointer.isLinked = { [weak self] in self?.isLinked ?? false }
         pointer.send = { [weak self] message in self?.send(message) ?? false }
@@ -153,6 +165,49 @@ final class DeskClientModel: ObservableObject {
         }.store(in: &subscriptions)
         browser.$status.sink { [weak self] in self?.discoveryStatus = $0 }
             .store(in: &subscriptions)
+    }
+
+    /// Native receiver configuration and dismantling can happen during a SwiftUI render.
+    /// Stop delivery immediately, but publish its UI snapshot after that render returns.
+    func cancelKeyboardInputFromView(displayID: UInt32) {
+        keyboardViewCancellationDepth += 1
+        defer { keyboardViewCancellationDepth -= 1 }
+        keyboard.cancel(displayID: displayID)
+    }
+
+    private func updateKeyboardPresentation(_ change: KeyboardPresentationChange) {
+        switch change {
+        case .pendingCount(let count): latestKeyboardPresentation.pendingCount = count
+        case .notice(let notice): latestKeyboardPresentation.notice = notice
+        }
+        if keyboardViewCancellationDepth == 0 {
+            // A later accepted edit, acknowledgement or session change supersedes a queued
+            // view-cancellation snapshot. Ordinary model operations remain synchronous.
+            keyboardPresentationGeneration &+= 1
+            keyboardPresentationTask?.cancel()
+            keyboardPresentationTask = nil
+            publishKeyboardPresentation()
+            return
+        }
+        guard keyboardPresentationTask == nil else { return }
+        keyboardPresentationGeneration &+= 1
+        let generation = keyboardPresentationGeneration
+        keyboardPresentationTask = Task { @MainActor [weak self] in
+            guard !Task.isCancelled, let self,
+                  self.keyboardPresentationGeneration == generation else { return }
+            self.keyboardPresentationTask = nil
+            // Read the latest snapshot: one cancellation can report both count and notice.
+            self.publishKeyboardPresentation()
+        }
+    }
+
+    private func publishKeyboardPresentation() {
+        if keyboardPendingCount != latestKeyboardPresentation.pendingCount {
+            keyboardPendingCount = latestKeyboardPresentation.pendingCount
+        }
+        if keyboardNotice != latestKeyboardPresentation.notice {
+            keyboardNotice = latestKeyboardPresentation.notice
+        }
     }
 
     /// Both ways in that take a typed key wait for a whole one, so Connect is never offered for a

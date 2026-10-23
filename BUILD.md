@@ -61,14 +61,19 @@ xcodebuild -project VisionDesk.xcodeproj -scheme VisionDesk \
   -only-testing:VisionTests/PortraitStreamStressTests \
   -only-testing:VisionTests/InputTransitionTests \
   -only-testing:VisionTests/KeyboardOwnershipTests \
+  -only-testing:VisionTests/InputReconnectTests \
+  -only-testing:VisionTests/KeyboardReconnectTests \
   -test-iterations 3 CODE_SIGNING_ALLOWED=NO test
 ```
 
 Choose the intended installed simulator when more than one matches that name. These
 bounded, deterministic suites cover pointer ownership and release ordering, scrolling
 under load, Unicode delivery and queue recovery, stale mouse callbacks during typing,
-portrait geometry, delayed decoding, and four-screen resize/hotplug recovery. They use
-synthetic input, in-memory credentials, and local test connections. They do not post
+portrait geometry, delayed decoding, and four-screen resize/hotplug recovery. Reconnect
+cases replace real authenticated TLS connections while input is queued, then verify
+that old gestures, text, acknowledgements, and connection callbacks cannot affect the
+replacement session. Fresh mouse, scroll, and native keyboard input must work afterward.
+They use synthetic input, in-memory credentials, and local test connections. They do not post
 input to another Mac application or establish physical headset latency or gesture quality.
 
 ## Privacy release

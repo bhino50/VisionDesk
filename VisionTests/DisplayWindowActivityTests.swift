@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import XCTest
 import UIKit
@@ -94,6 +95,53 @@ final class DisplayWindowActivityTests: XCTestCase {
         XCTAssertEqual(created, 2)
         XCTAssertEqual(registry.openingToken(for: .display(7)), current)
         XCTAssertNil(registry.message)
+    }
+
+    func testAnchorDismantlePublishesRemovalAfterTheViewUpdateReturns() async throws {
+        let registry = DeskWindowRegistry()
+        let anchor = DeskWindowAnchor.Anchor()
+        anchor.registry = registry
+        anchor.key = .display(7)
+        anchor.reconcileBinding(sessionID: "screen-7") {
+            registry.register(.display(7), owner: anchor.owner, sessionID: "screen-7")
+        }
+        var insideDismantle = false, synchronousPublications = 0, publications = 0
+        let observation = registry.$entries.dropFirst().sink { _ in
+            publications += 1
+            if insideDismantle { synchronousPublications += 1 }
+        }
+        defer { observation.cancel() }
+
+        insideDismantle = true
+        DeskWindowAnchor.dismantleUIView(anchor, coordinator: ())
+        insideDismantle = false
+
+        XCTAssertEqual(synchronousPublications, 0,
+                       "Representable dismantling must not publish observable state inside SwiftUI's view update.")
+        try await Loopback.waitUntil { registry.entries[.display(7)] == nil }
+        XCTAssertEqual(publications, 1, "The owner must still be released after dismantling.")
+    }
+
+    func testQueuedAnchorBindingAndDismantleCannotRemoveAReplacementOwner() async {
+        let registry = DeskWindowRegistry()
+        let anchor = DeskWindowAnchor.Anchor()
+        anchor.registry = registry
+        anchor.key = .display(7)
+        anchor.reconcileBinding(sessionID: "screen-7") {
+            registry.register(.display(7), owner: anchor.owner, sessionID: "screen-7")
+        }
+        anchor.bindAfterViewUpdate()
+        DeskWindowAnchor.dismantleUIView(anchor, coordinator: ())
+        let replacement = UUID()
+        registry.register(.display(7), owner: replacement, sessionID: "screen-7")
+        // Both the previously queued binding and deferred teardown get actor turns. Neither
+        // may reclaim the dismantled anchor or unregister the new owner of this same key.
+        for _ in 0..<12 { await Task.yield() }
+        XCTAssertEqual(registry.entries[.display(7)]?.owner, replacement)
+        XCTAssertEqual(registry.entries[.display(7)]?.sessionID, "screen-7")
+        XCTAssertNil(anchor.registry)
+        XCTAssertNil(anchor.boundRegistry)
+        XCTAssertNil(anchor.boundKey)
     }
 
     func testNativeDisplayRequestsCreateSelectedScreensAndReuseAnExistingOne() async throws {

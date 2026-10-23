@@ -49,6 +49,32 @@ final class ClientRecoveryTests: XCTestCase {
         XCTAssertEqual(model.connectionLabel, "Viewing only")
     }
 
+    /// A fresh manual pairing must not inherit the recovery allowance spent by an earlier
+    /// session, even when the wearer returns through the nearby route instead of its address.
+    func testDeliberateNearbyPairingRestoresSpentAutomaticRecoveryAllowance() async throws {
+        let session = try await Loopback.directSession(linkPolicy: Loopback.fastPolicy)
+        defer { session.close() }
+        let model = session.model, mac = session.mac
+
+        try await Loopback.waitUntil(timeout: 20) {
+            mac.sessionCount == 3 && model.isLinked && !model.isMacResponsive
+        }
+        XCTAssertFalse(model.willRecoverAutomatically, "The earlier session spent both recoveries.")
+        model.disconnect()
+        try await Loopback.waitUntil { !mac.isConnected }
+
+        // The same listener is handed to the production nearby-pairing entry point. It now
+        // advertises persistent pairing, just as the shipping companion does after attach.
+        mac.keepsPairing = true
+        model.connect(to: try XCTUnwrap(mac.endpoint), key: mac.key, name: "Nearby Mac")
+        try await Loopback.waitUntil(timeout: 15) {
+            mac.sessionCount == 4 && model.isLinked && model.canReconnectNow
+        }
+        XCTAssertTrue(model.willRecoverAutomatically,
+                      "A deliberate nearby pairing gets its own recovery allowance.")
+        try await Loopback.waitUntil(timeout: 15) { mac.sessionCount == 5 && model.isLinked }
+    }
+
     /// A Mac found by discovery stops sharing as soon as its session closes, so closing a silent
     /// session would end the very sharing the wearer is waiting for. It is reported, never
     /// closed, never offered a reconnection it could not deliver, and its silence explains

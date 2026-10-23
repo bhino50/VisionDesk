@@ -243,7 +243,7 @@ private struct ConnectedDisplay: View {
                     ForEach(model.displays) { display in
                         let number = (model.displays.firstIndex(where: { $0.id == display.id }) ?? 0) + 1
                         Button("\(number) · \(display.info.name)", systemImage: "display") {
-                            windows.open(.display(display.id)) { openWindow(id: "display", value: display.id) }
+                            DisplayWindowActivity.open(displayID: display.id, registry: windows)
                         }
                     }
                 }

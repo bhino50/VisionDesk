@@ -6,6 +6,46 @@ import XCTest
 
 @MainActor
 final class DirectPointerTests: XCTestCase {
+    func testTrackpadReversalLeavesEveryEdgeWithoutUnwindingOvershoot() {
+        // Each stroke overshoots a horizontal and vertical edge before reversing. All
+        // callbacks share one actor turn, so correctness cannot depend on a wire flush.
+        let cases: [(origin: CGPoint, start: CGPoint, outside: CGPoint, reversed: CGPoint)] = [
+            (CGPoint(x: 0.95, y: 0.05), CGPoint(x: 0.4, y: 0.6),
+             CGPoint(x: 0.8, y: 0.2), CGPoint(x: 0.75, y: 0.25)),
+            (CGPoint(x: 0.05, y: 0.95), CGPoint(x: 0.6, y: 0.4),
+             CGPoint(x: 0.2, y: 0.8), CGPoint(x: 0.25, y: 0.75))
+        ]
+        for item in cases {
+            let (input, messages) = pointer()
+            input.placePointer(displayID: 1, at: item.origin)
+            let token = UUID()
+            input.updateGesture(token: token, displayID: 1, mode: .pointer,
+                                start: item.start, point: item.start, translation: .zero)
+            input.updateGesture(token: token, displayID: 1, mode: .pointer,
+                                start: item.start, point: item.outside, translation: .zero)
+            input.finishGesture(token: token, displayID: 1, mode: .pointer,
+                                start: item.start, point: item.reversed, translation: .zero)
+            XCTAssertEqual(messages().last?.x ?? -1, item.origin.x, accuracy: 0.000001)
+            XCTAssertEqual(messages().last?.y ?? -1, item.origin.y, accuracy: 0.000001)
+            XCTAssertFalse(messages().contains { $0.action == "leftDown" || $0.action == "leftUp" })
+        }
+    }
+
+    func testTrackpadRepeatedTravelBeyondPortraitPictureDoesNotAccumulateEdgeDebt() {
+        let (input, messages) = pointer()
+        input.placePointer(displayID: 1, at: CGPoint(x: 0.9, y: 0.5))
+        let token = UUID(), start = CGPoint(x: 0.5, y: 0.5)
+        for x in [0.5, 0.9, 1.2] {
+            input.updateGesture(token: token, displayID: 1, mode: .pointer,
+                                start: start, point: CGPoint(x: x, y: 0.5), translation: .zero)
+        }
+        input.finishGesture(token: token, displayID: 1, mode: .pointer,
+                            start: start, point: CGPoint(x: 1.15, y: 0.5), translation: .zero)
+        XCTAssertEqual(messages().last?.x ?? -1, 0.95, accuracy: 0.000001,
+                       "Reversing five percent must move inward even while the hand remains outside the picture")
+        XCTAssertEqual(messages().last?.y, 0.5)
+    }
+
     func testTrackpadStrokeCanContinueBeyondPortraitPictureEdge() throws {
         let size = CGSize(width: 500, height: 1000)
         let image = CGSize(width: 1000, height: 2000)

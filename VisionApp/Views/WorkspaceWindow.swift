@@ -175,12 +175,7 @@ struct WorkspaceWindow: View {
     }
 
     private func openDisplay(_ id: UInt32) {
-        windows.open(.display(id)) {
-            guard let token = windows.openingToken(for: .display(id)) else { return }
-            DisplayWindowActivity.open(displayID: id) {
-                windows.creationFailed(.display(id), token: token)
-            }
-        }
+        DisplayWindowActivity.open(displayID: id, registry: windows)
     }
 
     private func displayNumber(_ id: UInt32) -> Int {

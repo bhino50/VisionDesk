@@ -265,9 +265,12 @@ final class DeskClientModel: ObservableObject {
         backgroundDisconnectTask = nil
         if let phase { scenePhases[id] = phase }
         else { scenePhases.removeValue(forKey: id) }
-        if phase != .active { keyboard.cancel() }
         let previouslyActive = hasActiveWindow
         hasActiveWindow = scenePhases.values.contains(.active)
+        // Closing an unrelated background screen must not discard typing queued by a
+        // still-active screen. Its native receiver handles that keyboard's own focus loss;
+        // this model-wide cancellation is for losing every active window.
+        if !hasActiveWindow { keyboard.cancel() }
         if hasActiveWindow {
             startDiscovery()
             if !previouslyActive {
@@ -429,6 +432,9 @@ final class DeskClientModel: ObservableObject {
         guard hasActiveWindow, !isLinked, !isConnecting else { return }
         pairingPersistenceWarning = nil
         lastConnectionFailure = nil
+        // Deliberate nearby pairing gets the same fresh silence-recovery allowance as a
+        // typed or saved connection. Scheduled retries use the private entry point below.
+        monitor.resetAutomaticRecoveries()
         let target = MacRoute(endpoint).map {
             RetryTarget(route: $0, name: name, key: key, origin: .nearby, shouldRemember: false)
         }

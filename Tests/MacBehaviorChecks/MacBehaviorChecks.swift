@@ -24,6 +24,7 @@ struct ChecksMain {
         await runFrameDeliveryChecks(runner)
         await runVideoDeliveryChecks(runner)
         await runCaptureContinuityChecks(runner)
+        await runCaptureLifecycleChecks(runner)
         await runInputMappingChecks(runner)
         await runKeyboardDeliveryChecks(runner)
         await runScrollRemainderChecks(runner)

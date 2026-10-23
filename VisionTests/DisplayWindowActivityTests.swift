@@ -31,6 +31,41 @@ final class DisplayWindowActivityTests: XCTestCase {
         XCTAssertNil(DisplayWindowActivity.displayID(from: foreign))
     }
 
+    func testInAppScreenRequestReservesCreationAndReusesExistingNativeWindow() {
+        var requests: [UInt32] = [], activated: [String] = []
+        let registry = DeskWindowRegistry(activate: { activated.append($0) })
+        let request: (UInt32, @escaping () -> Void) -> Void = { id, _ in requests.append(id) }
+
+        for _ in 0..<5 { DisplayWindowActivity.open(displayID: 7, registry: registry, request: request) }
+        XCTAssertEqual(requests, [7], "Repeated in-app actions must not create duplicate windows.")
+        registry.register(.display(7), owner: UUID(), sessionID: "screen-7")
+        DisplayWindowActivity.open(displayID: 7, registry: registry, request: request)
+        XCTAssertEqual(requests, [7])
+        XCTAssertEqual(activated, ["screen-7"])
+    }
+
+    func testInAppScreenRequestFailureAllowsRetryAndIgnoresLateFailure() {
+        let registry = DeskWindowRegistry()
+        var failures: [() -> Void] = []
+        let request: (UInt32, @escaping () -> Void) -> Void = { _, failed in failures.append(failed) }
+
+        DisplayWindowActivity.open(displayID: 7, registry: registry, request: request)
+        XCTAssertEqual(failures.count, 1)
+        failures[0]()
+        XCTAssertNotNil(registry.message)
+        DisplayWindowActivity.open(displayID: 7, registry: registry, request: request)
+        XCTAssertEqual(failures.count, 2)
+        XCTAssertNil(registry.message)
+
+        failures[0]()
+        DisplayWindowActivity.open(displayID: 7, registry: registry, request: request)
+        XCTAssertEqual(failures.count, 2, "An older failure cannot release the newer reservation.")
+        registry.register(.display(7), owner: UUID(), sessionID: "screen-7")
+        failures[1]()
+        XCTAssertTrue(registry.isOpen(7), "A late failure cannot remove the window that opened.")
+        XCTAssertNil(registry.message)
+    }
+
     func testCreationFailureCanBeRetriedAndLateFailureCannotEraseAnOpenWindow() throws {
         var created = 0
         let registry = DeskWindowRegistry()

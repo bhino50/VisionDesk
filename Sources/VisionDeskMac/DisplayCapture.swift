@@ -68,6 +68,7 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     /// JPEG, so it is paced as a preview even though no video is being delivered either.
     private var isHeadsetAttached = false
     private var isStopped = false
+    private var streamStopRequested = false
     private var sequence: UInt64 = 0
     private var invalidOutput = InvalidOutputBudget()
     /// The most recent genuinely captured frame, re-encoded as H.264 while the desktop sits idle.
@@ -122,15 +123,29 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     /// Stops capture and tears down the encoder. After this returns, no further encoded frame
     /// can be produced for this display, including from a late ScreenCaptureKit callback.
     func stop() async {
-        guard !latchStop() else { return }
+        requestStop()
+        guard beginStreamStop() else { return }
         try? await stream?.stopCapture()
     }
+
+    private func beginStreamStop() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let alreadyRequested = streamStopRequested
+        streamStopRequested = true
+        return !alreadyRequested
+    }
+
+    /// Revoke all output immediately, before waiting for another display's native teardown.
+    /// `stop()` performs the asynchronous ScreenCaptureKit retirement afterward.
+    func requestStop() { _ = latchStop() }
 
     /// Latches the stop and tears the encoder down synchronously, so no lock is ever held
     /// across a suspension point. Returns true when an earlier call already stopped capture.
     private func latchStop() -> Bool {
         lock.lock()
         let alreadyStopped = isStopped
+        guard !alreadyStopped else { lock.unlock(); return true }
         isStopped = true
         let stale = encoder
         encoder = nil

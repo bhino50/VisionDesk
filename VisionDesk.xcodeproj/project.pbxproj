@@ -247,9 +247,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>11</string>
+				<string>12</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.3</string>
+				<string>0.5.4</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -312,9 +312,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>11</string>
+				<string>12</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.3</string>
+				<string>0.5.4</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -626,9 +626,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>11</string>
+				<string>12</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.3</string>
+				<string>0.5.4</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -691,9 +691,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>11</string>
+				<string>12</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.3</string>
+				<string>0.5.4</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -1508,9 +1508,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>11</string>
+				<string>12</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.3</string>
+				<string>0.5.4</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -1570,9 +1570,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>11</string>
+				<string>12</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.3</string>
+				<string>0.5.4</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -2383,9 +2383,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>11</string>
+				<string>12</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.3</string>
+				<string>0.5.4</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -2444,9 +2444,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>11</string>
+				<string>12</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.3</string>
+				<string>0.5.4</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>

@@ -31,8 +31,8 @@ final class PointerInput {
         let token: UUID
         let displayID: UInt32
         let mode: ScreenInteractionMode
-        let start: CGPoint
-        let pointerOrigin: CGPoint
+        var lastPoint: CGPoint
+        var pointerPosition: CGPoint
         var lastTranslation: CGSize
         var buttonHeld: Bool
     }
@@ -213,14 +213,14 @@ final class PointerInput {
             // to lift it.
             activeGesture = ActiveGesture(
                 token: token, displayID: displayID, mode: mode,
-                start: start, pointerOrigin: mode == .pointer ? (lastPoints[displayID] ?? start) : start,
+                lastPoint: start, pointerPosition: mode == .pointer ? (lastPoints[displayID] ?? start) : start,
                 lastTranslation: .zero, buttonHeld: false
             )
             // A fresh budget, so this first position goes out with no added wait. Starting
             // to point is the moment coalescing may not be felt in.
             cancelPendingInput()
             coalescer.reset()
-            offerMove(displayID: displayID, point: activeGesture?.pointerOrigin ?? start)
+            offerMove(displayID: displayID, point: activeGesture?.pointerPosition ?? start)
             if mode == .interact || mode == .direct {
                 // A failed send disconnects, which has already released this gesture; a
                 // revoked gate drops the press. Either way nothing is held on the Mac.
@@ -234,12 +234,15 @@ final class PointerInput {
         }
         guard var gesture = activeGesture, gesture.token == token else { return }
         if gesture.mode == .pointer {
-            // Repositioning the hand starts a fresh relative stroke, not a jump to
-            // the new gaze target. Direct interaction remains absolute.
+            // Integrate from each hand sample and clamp immediately. Once the cursor hits
+            // an edge, outward travel is spent there rather than stored as a distance the
+            // wearer must unwind before reversing. Keep this position separate from the
+            // coalesced wire position so rapid callbacks preserve every relative delta.
             let relative = CGPoint(
-                x: min(1, max(0, gesture.pointerOrigin.x + (point.x - gesture.start.x))),
-                y: min(1, max(0, gesture.pointerOrigin.y + (point.y - gesture.start.y)))
+                x: min(1, max(0, gesture.pointerPosition.x + (point.x - gesture.lastPoint.x))),
+                y: min(1, max(0, gesture.pointerPosition.y + (point.y - gesture.lastPoint.y)))
             )
+            gesture.pointerPosition = relative
             offerMove(displayID: displayID, point: relative)
         } else if gesture.mode != .scroll {
             offerMove(displayID: displayID, point: point)
@@ -252,6 +255,7 @@ final class PointerInput {
                 deltaY: -Double(translation.height - gesture.lastTranslation.height) * Self.scrollScale
             )
         }
+        gesture.lastPoint = point
         gesture.lastTranslation = translation
         // A failed send disconnects and releases. Never write a released gesture back.
         if activeGesture?.token == token { activeGesture = gesture }

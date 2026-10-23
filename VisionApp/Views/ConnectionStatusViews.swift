@@ -75,7 +75,7 @@ struct ConnectionDetailsPanel: View {
                 Button("Reconnect now", action: model.reconnectNow)
                     .accessibilityHint("Ends the current connection and tries the same Mac again.")
             }
-            Text("Frame age is time since a picture was decoded here. It is not a network latency measurement.")
+            Text("Frame age is time since the displayed picture arrived here, including decoding time. It is not a network latency measurement.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -97,7 +97,7 @@ private struct StreamConnectionDetails: View {
                 Text("\(number) · \(stream.info.name)").font(.headline)
                 LabeledContent("Picture", value: stream.isFresh() ? "Live" : "Waiting for a fresh frame")
                 LabeledContent("Format", value: stream.receivedAt == nil ? "Waiting" : stream.usesVideo ? "H.264 video" : "Image updates")
-                LabeledContent("Last decoded frame", value: ConnectionDiagnostics.frameAge(
+                LabeledContent("Displayed picture age", value: ConnectionDiagnostics.frameAge(
                     receivedAt: stream.receivedAt, now: ProcessInfo.processInfo.systemUptime))
                 if let warning = stream.decodeWarning {
                     Text(warning).foregroundStyle(.orange)

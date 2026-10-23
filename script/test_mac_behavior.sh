@@ -55,6 +55,7 @@ PRODUCTION_SOURCES=(
     Sources/VisionDeskMac/CompanionModel+Recovery.swift
     Sources/VisionDeskMac/LANHostSupport.swift
     Sources/VisionDeskMac/DisplayCapture.swift
+    Sources/VisionDeskMac/CaptureLifecycle.swift
     Sources/VisionDeskMac/H264Encoder.swift
     Sources/VisionDeskMac/VirtualDisplayManager.swift
     Sources/VisionDeskMac/DockAppLauncher.swift

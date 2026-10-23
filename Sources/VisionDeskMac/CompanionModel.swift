@@ -141,6 +141,11 @@ final class CompanionModel: ObservableObject {
         }
     }
     private var captures: [DisplayCapture] = []
+    private var preparingCaptures: [DisplayCapture] = []
+    private let captureLifecycle = CaptureLifecycle()
+    /// An encoder may fail during asynchronous preparation, before `captures` is installed.
+    /// Remember that session-wide fallback so later staged displays inherit it too.
+    private(set) var videoFallbackReason: String?
     private var latestFrames: [UInt32: Data] = [:]
     /// Displays whose newest image has not reached `previews` yet.
     private var stalePreviews = Set<UInt32>()
@@ -304,9 +309,11 @@ final class CompanionModel: ObservableObject {
         encodedFrameCounts = [:]; encodedByteCount = 0
         busy = true; generation += 1
         let token = generation
+        videoFallbackReason = nil
         sessionInventory = arrangement
         status = "Preparing connected displays…"
-        Task { [self] in
+        captureLifecycle.start { [self] in
+            guard generation == token else { return }
             var staged: [DisplayCapture] = []
             do {
                 let content = try await contentProvider()
@@ -339,10 +346,13 @@ final class CompanionModel: ObservableObject {
                         }
                     })
                     staged.append(capture)
+                    preparingCaptures = staged
+                    if videoFallbackReason != nil { capture.disableVideo() }
                     try await capture.start()
                     guard generation == token else { for capture in staged { await capture.stop() }; return }
                 }
                 captures = staged
+                preparingCaptures = []
                 // A capture built after these were last set has to inherit them; `didSet` only
                 // reaches the captures that already existed when the value changed.
                 let attached = isHeadsetAttached
@@ -357,10 +367,12 @@ final class CompanionModel: ObservableObject {
                 // The backoff starts over only once this session has stayed up; see the watchdog.
                 sharing = true; busy = false; sharingStartedUptime = uptime()
                 screenPermission = true
-                status = "Sharing \(displays.count) of \(availableDisplays.count) displays. Choose this Mac in VisionDesk on Vision Pro."
+                let ready = "Sharing \(displays.count) of \(availableDisplays.count) displays. Choose this Mac in VisionDesk on Vision Pro."
+                status = videoFallbackReason.map { "\(ready) \($0)" } ?? ready
             } catch {
                 for capture in staged { await capture.stop() }
                 guard generation == token else { return }
+                preparingCaptures = []
                 captureEnded(CaptureFailure(error), while: "Could not start sharing")
             }
         }
@@ -439,8 +451,9 @@ final class CompanionModel: ObservableObject {
         current?.onState = nil; current?.onMessage = nil
         listenerKeepsPairing = false
         server.stop(); current?.cancel()
-        let oldCaptures = captures; captures = []
-        Task { for capture in oldCaptures { await capture.stop() } }
+        let oldCaptures = captures + preparingCaptures
+        captures = []; preparingCaptures = []
+        captureLifecycle.stop(oldCaptures, revoke: { $0.requestStop() }, retire: { await $0.stop() })
         sharing = false; busy = false; connected = false; previews = [:]; latestFrames = [:]
         // A one-session key ends with its session. A remembered key the owner asked to see stays
         // valid, so it hides when its reveal ends instead.
@@ -702,14 +715,15 @@ final class CompanionModel: ObservableObject {
     /// nothing at all on that screen. Promotion back to video cannot race this, because it
     /// requires every capture to report `isEncodingVideo`, and the failed one no longer does.
     func degradeToImageUpdates(_ reason: String) {
-        guard peerUsesVideo || sharing else { return }
+        guard peerUsesVideo || sharing || busy else { return }
+        videoFallbackReason = reason
         peerUsesVideo = false
         lastKeyframeRequest = [:]
         // Image delivery is global, so the switch has to be too. A capture left encoding still
         // treats its JPEG as a background preview and emits it twice a second, which would show
         // as half-second lag on the three healthy displays while the failed one ran at full
         // rate. Latching every capture off also stops paying for encoders nothing consumes.
-        captures.forEach { $0.disableVideo() }
+        (captures + preparingCaptures).forEach { $0.disableVideo() }
         // Re-send the cached image immediately so the display is not left on its last video
         // frame until the next capture callback happens to arrive.
         if let channel {

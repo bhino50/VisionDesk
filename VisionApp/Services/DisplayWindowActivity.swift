@@ -34,10 +34,54 @@ enum DisplayWindowActivity {
         return provider
     }
 
+    /// Every in-app screen action uses the same native route as drag-to-space. The registry
+    /// reserves creation and restores its button on failure; an existing window is activated.
+    static func open(displayID: UInt32, registry: DeskWindowRegistry,
+                     request: ((UInt32, @escaping () -> Void) -> Void)? = nil) {
+        let key = DeskWindowRegistry.Key.display(displayID)
+        registry.open(key) {
+            guard let token = registry.openingToken(for: key) else { return }
+            let failed: () -> Void = { [weak registry] in
+                registry?.creationFailed(key, token: token)
+            }
+            if let request { request(displayID, failed) }
+            else { open(displayID: displayID, onFailure: failed) }
+        }
+    }
+
     static func open(displayID: UInt32, onFailure: @escaping () -> Void) {
         guard displayID > 0 else { onFailure(); return }
-        var request = UISceneSessionActivationRequest()
+        // An untargeted request can create another scene even after this display's anchor
+        // has registered. Select the known native session explicitly instead of relying on
+        // SwiftUI's external-event preferences to have reached UIKit already.
+        var request = registeredSession(displayID: displayID)
+            .map { UISceneSessionActivationRequest(session: $0) } ?? UISceneSessionActivationRequest()
         request.userActivity = make(displayID: displayID)
         UIApplication.shared.activateSceneSession(for: request) { _ in onFailure() }
+    }
+
+    private static func registeredSession(displayID: UInt32) -> UISceneSession? {
+        let key = DeskWindowRegistry.Key.display(displayID)
+        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+            if scene.windows.contains(where: {
+                containsRegisteredDisplay(in: $0, key: key, sessionID: scene.session.persistentIdentifier)
+            }) {
+                return scene.session
+            }
+        }
+        return nil
+    }
+
+    private static func containsRegisteredDisplay(in view: UIView, key: DeskWindowRegistry.Key,
+                                                  sessionID: String) -> Bool {
+        if let anchor = view as? DeskWindowAnchor.Anchor,
+           anchor.boundKey == key,
+           let entry = anchor.boundRegistry?.entries[key],
+           entry.owner == anchor.owner, entry.sessionID == sessionID {
+            return true
+        }
+        return view.subviews.contains {
+            containsRegisteredDisplay(in: $0, key: key, sessionID: sessionID)
+        }
     }
 }

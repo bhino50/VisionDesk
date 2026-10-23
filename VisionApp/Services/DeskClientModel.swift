@@ -786,9 +786,13 @@ final class DeskClientModel: ObservableObject {
         // `isValid` also rules out id 0, oversized pixel sizes, and a pointWidth or
         // pointHeight that would make every coordinate unmappable on the Mac.
         let valid = infos.filter { $0.isValid && ids.insert($0.id).inserted }
-        if displays.count != valid.count || displays.contains(where: { stream in
-            !valid.contains(where: { $0.id == stream.info.id && !Self.mapsPositionsDifferently(stream.info, $0) })
-        }) { keyboard.cancel() }
+        // A hotplug or rotation on another screen does not change the destination that
+        // already owns admitted typing. Cancel only removed or remapped destinations.
+        for stream in displays where !valid.contains(where: {
+            $0.id == stream.info.id && !Self.mapsPositionsDifferently(stream.info, $0)
+        }) {
+            keyboard.cancel(displayID: stream.id)
+        }
         if let active = pointer.activeDisplayID, !valid.contains(where: { $0.id == active }) {
             pointer.releaseGesture()
             guard isLinked else { return }

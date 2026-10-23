@@ -63,6 +63,9 @@ extension DeskClientModel {
 
     func cancelKeyboardInput() { keyboard.cancel() }
 
+    /// Receiver lifecycle changes belong to one screen, not every open keyboard panel.
+    func cancelKeyboardInput(displayID: UInt32) { keyboard.cancel(displayID: displayID) }
+
     func sendText(_ text: String, displayID: UInt32) -> Bool {
         guard !text.isEmpty, pointer.prepareKeyboardInput(displayID: displayID) else { return false }
         return keyboard.enqueueText(text, displayID: displayID)

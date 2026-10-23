@@ -247,9 +247,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>13</string>
+				<string>14</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.5</string>
+				<string>0.5.6</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -312,9 +312,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>13</string>
+				<string>14</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.5</string>
+				<string>0.5.6</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -626,9 +626,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>13</string>
+				<string>14</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.5</string>
+				<string>0.5.6</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -691,9 +691,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>13</string>
+				<string>14</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.5</string>
+				<string>0.5.6</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -1508,9 +1508,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>13</string>
+				<string>14</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.5</string>
+				<string>0.5.6</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -1570,9 +1570,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>13</string>
+				<string>14</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.5</string>
+				<string>0.5.6</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -1847,6 +1847,42 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>761445D4316C7E46B108CBB8</string>
+		</dict>
+		<key>D0870AC17773DC9490CD8C13</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>VisionTests/InputTransitionTests.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>D15C8BDBF739D86A62D45AA9</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>D0870AC17773DC9490CD8C13</string>
+		</dict>
+		<key>B47367EC5A52485435815401</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>VisionTests/KeyboardOwnershipTests.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>DE7861C1A0EC87EAE6798E2C</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>B47367EC5A52485435815401</string>
 		</dict>
 		<key>B38490D6E6235FC983C8D17B</key>
 		<dict>
@@ -2263,6 +2299,8 @@
 				<string>B96E1119405C21A8E305BE7D</string>
 				<string>D54CD5AA46DDA81135034593</string>
 				<string>761445D4316C7E46B108CBB8</string>
+				<string>D0870AC17773DC9490CD8C13</string>
+				<string>B47367EC5A52485435815401</string>
 				<string>B38490D6E6235FC983C8D17B</string>
 				<string>BF6EA26D8DB875326354B5B6</string>
 				<string>D9C591FA6E070E6E2ABA0CB8</string>
@@ -2308,6 +2346,8 @@
 				<string>FD858AF863E8C644104012B2</string>
 				<string>0CC41C024287F057E34D1BC4</string>
 				<string>D9E52CC0E0AD85FDC20B198F</string>
+				<string>D15C8BDBF739D86A62D45AA9</string>
+				<string>DE7861C1A0EC87EAE6798E2C</string>
 				<string>2023A70C821BB7690190EED2</string>
 				<string>FB701DEF875A715E73099105</string>
 				<string>D3C6075438865A4267102BF9</string>
@@ -2443,9 +2483,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>13</string>
+				<string>14</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.5</string>
+				<string>0.5.6</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>
@@ -2504,9 +2544,9 @@
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>13</string>
+				<string>14</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.5.5</string>
+				<string>0.5.6</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>ENABLE_USER_SCRIPT_SANDBOXING</key>

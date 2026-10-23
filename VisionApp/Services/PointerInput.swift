@@ -199,17 +199,24 @@ final class PointerInput {
         start: CGPoint, point: CGPoint, translation: CGSize, beforeInput: () -> Void = {}
     ) {
         guard !retiredGestureTokens.contains(token) else { return }
+        // One Mac pointer cannot be in two drags at once, so the first gesture keeps it until
+        // it ends, is cancelled, or loses control. A second window's drag is ignored rather
+        // than interleaved as a leftUp/leftDown storm across two displays.
+        if let active = activeGesture {
+            guard active.token == token else {
+                // This recognizer lost ownership. Its later samples belong to that same
+                // rejected gesture, not to a new intent after the winner releases.
+                retireGestureToken(token)
+                return
+            }
+            guard active.displayID == displayID, active.mode == mode else { return }
+        }
         guard canControl(displayID), valid(start),
               point.x.isFinite, point.y.isFinite, mode == .pointer || valid(point),
               translation.width.isFinite, translation.height.isFinite else {
             cancelGesture(token: token)
             return
         }
-        // One Mac pointer cannot be in two drags at once, so the first gesture keeps it until
-        // it ends, is cancelled, or loses control. A second window's drag is ignored rather
-        // than interleaved as a leftUp/leftDown storm across two displays.
-        if let active = activeGesture,
-           active.token != token || active.displayID != displayID || active.mode != mode { return }
         // Cross-input interruption belongs to an accepted pointer action. In particular,
         // a late retired/rival recognizer must not discard text queued after it ended.
         beforeInput()
@@ -277,7 +284,10 @@ final class PointerInput {
     /// only while this gesture is still the active one. Calling it twice would be harmless —
     /// it is nil-guarded — but relying on that would hide the reentrancy.
     func endGesture(token: UUID) {
-        guard activeGesture?.token == token else { return }
+        guard activeGesture?.token == token else {
+            retireGestureToken(token)
+            return
+        }
         flushPendingInput(drain: true)
         guard activeGesture?.token == token else { return }
         // A Pointer pan ends with movement only, however little the hand moved: it never
@@ -292,8 +302,11 @@ final class PointerInput {
     func finishGesture(token: UUID, displayID: UInt32, mode: ScreenInteractionMode,
                        start: CGPoint, point: CGPoint, translation: CGSize,
                        beforeInput: () -> Void = {}) {
-        guard let active = activeGesture, active.token == token,
-              active.displayID == displayID, active.mode == mode else { return }
+        guard let active = activeGesture, active.token == token else {
+            retireGestureToken(token)
+            return
+        }
+        guard active.displayID == displayID, active.mode == mode else { return }
         updateGesture(token: token, displayID: displayID, mode: mode,
                       start: start, point: point, translation: translation, beforeInput: beforeInput)
         endGesture(token: token)
@@ -306,8 +319,17 @@ final class PointerInput {
     /// Token-scoped on purpose: a second hand's cancel may not discard the winning gesture's
     /// movement any more than it may release its button.
     func cancelGesture(token: UUID) {
-        guard activeGesture?.token == token else { return }
+        guard activeGesture?.token == token else {
+            retireGestureToken(token)
+            return
+        }
         releaseGesture()
+    }
+
+    private func retireGestureToken(_ token: UUID) {
+        guard !retiredGestureTokens.contains(token) else { return }
+        retiredGestureTokens.append(token)
+        if retiredGestureTokens.count > 64 { retiredGestureTokens.removeFirst() }
     }
 
     /// SwiftUI has reset this gesture's recognizer state, which it does for a completed drag
@@ -350,8 +372,7 @@ final class PointerInput {
         settleTask = nil
         cancelPendingInput()
         guard let gesture = activeGesture else { return }
-        retiredGestureTokens.append(gesture.token)
-        if retiredGestureTokens.count > 64 { retiredGestureTokens.removeFirst() }
+        retireGestureToken(gesture.token)
         activeGesture = nil
         if gesture.buttonHeld, isLinked() {
             // Releases remain allowed after local control state has been revoked. A held button

@@ -125,6 +125,13 @@ final class KeyboardDelivery {
         if let target, pendingCount > 0, !canControl(target) { cancel() }
     }
 
+    /// A display or its keyboard receiver may disappear while a different screen owns
+    /// the queue. Only the current destination can invalidate those admitted operations.
+    func cancel(displayID: UInt32) {
+        guard target == displayID else { return }
+        cancel()
+    }
+
     func cancel(endSession: Bool = false) {
         let hadPending = pendingCount > 0
         generation = UUID()

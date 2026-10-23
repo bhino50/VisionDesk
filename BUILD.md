@@ -59,6 +59,8 @@ xcodebuild -project VisionDesk.xcodeproj -scheme VisionDesk \
   -only-testing:VisionTests/PointerStressTests \
   -only-testing:VisionTests/KeyboardStressTests \
   -only-testing:VisionTests/PortraitStreamStressTests \
+  -only-testing:VisionTests/InputTransitionTests \
+  -only-testing:VisionTests/KeyboardOwnershipTests \
   -test-iterations 3 CODE_SIGNING_ALLOWED=NO test
 ```
 

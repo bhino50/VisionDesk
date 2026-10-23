@@ -1740,6 +1740,24 @@
 			<key>fileRef</key>
 			<string>85ADEA6299417427466F5BCD</string>
 		</dict>
+		<key>09D58F6DE3B03307E8655892</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>VisionTests/DisplayStreamFreshnessTests.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>EF1DAD61A5A592471ECFA0A1</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>09D58F6DE3B03307E8655892</string>
+		</dict>
 		<key>00F5202866CDB8CBAC451DAB</key>
 		<dict>
 			<key>isa</key>
@@ -2154,6 +2172,24 @@
 			<key>fileRef</key>
 			<string>C0E5777ADDC3262B172C4C67</string>
 		</dict>
+		<key>DD977432FC72BE12E2ECC005</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>VisionTests/WorkspaceLayoutTests.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>C71D73A852140C509DD6154E</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>DD977432FC72BE12E2ECC005</string>
+		</dict>
 		<key>FF1E658EEF697BA9195318DB</key>
 		<dict>
 			<key>isa</key>
@@ -2167,6 +2203,7 @@
 				<string>6E1392A5A7CB14EB17E9FE8E</string>
 				<string>E960F60B3C3C41ABD9391058</string>
 				<string>85ADEA6299417427466F5BCD</string>
+				<string>09D58F6DE3B03307E8655892</string>
 				<string>00F5202866CDB8CBAC451DAB</string>
 				<string>4FB8CCED094F414F310679AA</string>
 				<string>B96E1119405C21A8E305BE7D</string>
@@ -2190,6 +2227,7 @@
 				<string>68F9B23A1CC50852E3740581</string>
 				<string>7293621231CFAC0524E84A22</string>
 				<string>C0E5777ADDC3262B172C4C67</string>
+				<string>DD977432FC72BE12E2ECC005</string>
 			</array>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
@@ -2207,6 +2245,7 @@
 				<string>9ED1B0E56DE38AA40516CE88</string>
 				<string>7870563089EE4261ED911F86</string>
 				<string>66956372D14F3313EB6C453A</string>
+				<string>EF1DAD61A5A592471ECFA0A1</string>
 				<string>C9F1B27F1C7099DB5D73190A</string>
 				<string>C5C069EEF8C454341D375312</string>
 				<string>FD858AF863E8C644104012B2</string>
@@ -2230,6 +2269,7 @@
 				<string>3504CC698754957AA2CD4B0A</string>
 				<string>831E15BE86B1A095E6A365BD</string>
 				<string>8B00F8DAE56F4E7F10D5998B</string>
+				<string>C71D73A852140C509DD6154E</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<integer>0</integer>

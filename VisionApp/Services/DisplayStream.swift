@@ -79,17 +79,25 @@ final class DisplayStream: ObservableObject, Identifiable {
     /// Which source last published for this display. Readable so a test can state which
     /// pipeline a transition handed the stream to; only `switchSource` changes it.
     private(set) var usesVideo = false
-    private var latestJPEG: Data?
+    private struct PendingFrame<Payload: Sendable>: Sendable {
+        let payload: Payload
+        let arrivedAt: TimeInterval
+    }
+
+    private var latestJPEG: PendingFrame<Data>?
     private var workerTask: Task<Void, Never>?
     private var decoderNeedsRetirement = false
+    private let now: () -> TimeInterval
     private let beforeNativeWork: @Sendable (String) -> Void
     private var epoch = UUID()
 
-    private var pendingVideo: [EncodedVideoFrame] = []
+    private var pendingVideo: [PendingFrame<EncodedVideoFrame>] = []
     private var sequencer = VideoStreamSequencer()
     private var nativeSlot: NativeDecodeSlot?
 
-    init(info: DisplayInfo, beforeNativeWork: @escaping @Sendable (String) -> Void = { _ in }) {
+    init(info: DisplayInfo, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         beforeNativeWork: @escaping @Sendable (String) -> Void = { _ in }) {
+        self.now = now
         self.beforeNativeWork = beforeNativeWork
         self.id = info.id
         self.info = info
@@ -134,7 +142,7 @@ final class DisplayStream: ObservableObject, Identifiable {
         }
         switchSource(toVideo: false)
         // While a frame decodes, keep only the newest replacement for this display.
-        latestJPEG = jpeg
+        latestJPEG = PendingFrame(payload: jpeg, arrivedAt: now())
         startWorkerIfNeeded()
     }
 
@@ -223,7 +231,7 @@ final class DisplayStream: ObservableObject, Identifiable {
     // MARK: Video pipeline
 
     private func enqueue(_ frame: EncodedVideoFrame) {
-        pendingVideo.append(frame)
+        pendingVideo.append(PendingFrame(payload: frame, arrivedAt: now()))
         guard pendingVideo.count <= Self.maximumPendingVideoFrames else {
             // The decoder is not keeping up. Shedding the backlog costs one keyframe and
             // returns the user to live, where draining it would only add latency.
@@ -268,20 +276,20 @@ final class DisplayStream: ObservableObject, Identifiable {
                     continue
                 }
                 let currentEpoch = self.epoch
-                if let data = self.latestJPEG {
+                if let pending = self.latestJPEG {
                     self.latestJPEG = nil
                     let decoded = await Task.detached(priority: .userInitiated) {
                         hook("jpeg")
-                        return DeskFrameDecoder.decode(data)
+                        return DeskFrameDecoder.decode(pending.payload)
                     }.value
                     guard self.epoch == currentEpoch else { continue }
-                    self.publish(decoded)
+                    self.publish(decoded, arrivedAt: pending.arrivedAt)
                 } else if !self.pendingVideo.isEmpty {
                     let next = self.pendingVideo.removeFirst()
                     let decoder = self.activeDecoder()
                     let decoded = await Task.detached(priority: .userInitiated) {
                         hook("video")
-                        return decoder.decode(next).map(DecodedDeskFrame.init(image:))
+                        return decoder.decode(next.payload).map(DecodedDeskFrame.init(image:))
                     }.value
                     guard self.epoch == currentEpoch else { continue }
                     guard let decoded else {
@@ -291,7 +299,7 @@ final class DisplayStream: ObservableObject, Identifiable {
                         self.requireKeyframe()
                         continue
                     }
-                    self.publish(decoded)
+                    self.publish(decoded, arrivedAt: next.arrivedAt)
                     self.needsKeyframe = self.sequencer.isAwaitingKeyframe
                 } else {
                     // Keep video reference state under its lease. JPEG-only work has
@@ -304,10 +312,11 @@ final class DisplayStream: ObservableObject, Identifiable {
         }
     }
 
-    private func publish(_ decoded: DecodedDeskFrame?) {
+    private func publish(_ decoded: DecodedDeskFrame?, arrivedAt: TimeInterval) {
         if let decoded {
             image = UIImage(cgImage: decoded.image)
-            receivedAt = ProcessInfo.processInfo.systemUptime
+            // Decoding an old packet must not make its pixels safe to interact with again.
+            receivedAt = arrivedAt
             decodeWarning = nil
         } else {
             decodeWarning = "A frame could not be displayed."

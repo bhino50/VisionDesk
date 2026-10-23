@@ -351,6 +351,21 @@ enum ScreenGesturePolicy {
     static func panMinimumDistance(for mode: ScreenInteractionMode) -> CGFloat {
         tapClicks(in: mode) ? pointerPanThreshold : 0
     }
+
+    /// A trackpad stroke may continue beyond the picture without losing hand travel.
+    /// Absolute modes still clamp to its edge; only the resulting remote pointer is clamped
+    /// for relative strokes. The initial pinch remains confined to the image by the caller.
+    static func gesturePoint(_ location: CGPoint, in size: CGSize, image: CGSize,
+                             mode: ScreenInteractionMode) -> CGPoint? {
+        guard mode == .pointer else {
+            return DisplayGeometry.normalized(location, in: size, image: image, clampToImage: true)
+        }
+        guard location.x.isFinite, location.y.isFinite,
+              let rect = DisplayGeometry.imageRect(in: size, image: image) else { return nil }
+        let point = CGPoint(x: (location.x - rect.minX) / rect.width,
+                            y: (location.y - rect.minY) / rect.height)
+        return point.x.isFinite && point.y.isFinite ? point : nil
+    }
 }
 
 @MainActor
@@ -504,7 +519,8 @@ private struct DisplaySurface: View {
             .updating($gestureIsActive) { _, active, _ in active = true }
             .onChanged { value in
                 guard let start = DisplayGeometry.normalized(value.startLocation, in: size, image: stream.imageSize),
-                      let point = DisplayGeometry.normalized(value.location, in: size, image: stream.imageSize, clampToImage: true)
+                      let point = ScreenGesturePolicy.gesturePoint(value.location, in: size,
+                                                                  image: stream.imageSize, mode: mode)
                 else { return }
                 if activePinchToken == nil { activePinchToken = token }
                 pinchTarget.point = point
@@ -516,7 +532,8 @@ private struct DisplaySurface: View {
             .onEnded { value in
                 // SwiftUI may provide a final location without a preceding changed callback.
                 if let start = DisplayGeometry.normalized(value.startLocation, in: size, image: stream.imageSize),
-                   let point = DisplayGeometry.normalized(value.location, in: size, image: stream.imageSize, clampToImage: true) {
+                   let point = ScreenGesturePolicy.gesturePoint(value.location, in: size,
+                                                               image: stream.imageSize, mode: mode) {
                     model.finishGesture(token: token, displayID: stream.id, mode: mode,
                                         start: start, point: point, translation: value.translation)
                 } else {
@@ -605,8 +622,16 @@ private struct KeyboardPanel: View {
                                     onText: { model.sendText($0, displayID: displayID) },
                                     onKey: { model.sendKey($0, displayID: displayID) },
                                     onCancel: { model.cancelKeyboardInput() },
-                                    commands: keyboardCommands)
+                                    commands: keyboardCommands, destinationID: displayID)
                     .frame(height: 92)
+                Button("Send remaining text", systemImage: "paperplane") {
+                    keyboardCommands.retryRemainingText()
+                }
+                .disabled(!enabled)
+                .accessibilityHint("Retries only text still shown in the keyboard field, without adding a key.")
+                Text("Text left in the field has not been sent. If the keyboard was busy, wait, then choose Send remaining text.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let notice = model.keyboardNotice {
                     Text(notice)
                         .font(.caption).foregroundStyle(.secondary)

@@ -82,6 +82,7 @@ Build and automated-test success do not establish physical headset discovery, pi
 - **Missing or unexpected screens:** open **Displays** in the companion and select up to four screens. To create additional desktops without monitors, stop sharing and choose **Add Desktop** in **Extra desktops**. You can create up to three 1920 × 1080 desktops, then select any four attached or extra screens to share. Extra desktops last only while the Mac companion runs. This optional backend uses an undocumented macOS interface and may be unavailable after an OS change; attached-display sharing remains available.
 - **Blank picture:** grant Screen Recording on the Mac, follow any macOS prompt to quit and reopen the app, and keep the Mac logged in, awake, and unlocked.
 - **Picture works but input does not:** grant Accessibility, enable Mac control, and use **Request Control** on the headset when available. Focus the intended Mac application before typing.
+- **Keyboard says it is still sending:** allow queued input to finish, then choose **Send remaining text** to retry text still visible in the keyboard field. Reopening the keyboard on the same display preserves this unsent text. Changing screens or losing control clears it to prevent typing into the wrong destination.
 - **Permissions need granting again after a rebuild:** ad-hoc signing can change the app's identity. Use a stable local signing identity for repeated development.
 
 ## Privacy and security

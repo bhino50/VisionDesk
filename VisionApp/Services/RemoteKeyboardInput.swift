@@ -13,6 +13,7 @@ struct RemoteKeyboardInput: UIViewRepresentable {
     let onKey: (String) -> Void
     var onCancel: () -> Void = {}
     var commands: RemoteKeyboardCommands? = nil
+    var destinationID: UInt32? = nil
 
     func makeUIView(context: Context) -> RemoteKeyboardTextView {
         let view = RemoteKeyboardTextView()
@@ -27,7 +28,8 @@ struct RemoteKeyboardInput: UIViewRepresentable {
         }
         commands?.attach(view)
         view.configure(isEnabled: isEnabled, focusRequest: focusRequest,
-                       onText: onText, onKey: onKey, onCancel: onCancel)
+                       onText: onText, onKey: onKey, onCancel: onCancel,
+                       destinationID: destinationID)
     }
 
     static func dismantleUIView(_ view: RemoteKeyboardTextView, coordinator: ()) {
@@ -46,6 +48,7 @@ final class RemoteKeyboardCommands: ObservableObject {
         if receiver === view { receiver = nil }
     }
     func send(_ key: String) { receiver?.sendRemoteKey(key) }
+    func retryRemainingText() { receiver?.retryRemainingText() }
 }
 
 /// `UITextView` owns marked text and keyboard layout handling. In particular, no physical
@@ -57,6 +60,7 @@ class RemoteKeyboardTextView: UITextView, UITextViewDelegate {
     private var inputIsEnabled = false
     private var inputHasEnded = false
     private var focusRequest: UUID?
+    private var destinationID: UInt32?
     private var attemptedFocusRequest: UUID?
     private var pendingFocus: Task<Void, Never>?
     private var mutationDepth = 0
@@ -122,17 +126,24 @@ class RemoteKeyboardTextView: UITextView, UITextViewDelegate {
     required init?(coder: NSCoder) { fatalError("Use init()") }
 
     func configure(isEnabled: Bool, focusRequest: UUID,
-                   onText: @escaping (String) -> Bool, onKey: @escaping (String) -> Void, onCancel: @escaping () -> Void = {}) {
+                   onText: @escaping (String) -> Bool, onKey: @escaping (String) -> Void,
+                   onCancel: @escaping () -> Void = {}, destinationID: UInt32? = nil) {
         guard !inputHasEnded else { return }
-        if let previous = self.focusRequest, previous != focusRequest {
+        let destinationChanged = self.destinationID != destinationID
+        let refocusing = self.focusRequest != nil && self.focusRequest != focusRequest
+        if destinationChanged || refocusing {
             pendingFocus?.cancel()
             pendingFocus = nil
-            // Never let a composition from an earlier presentation cross into a new input
-            // destination if SwiftUI reuses this UIKit view.
-            self.onCancel?()
-            cancelComposition()
+            // Refocusing the same explicit destination must not erase a committed edit that
+            // the delivery queue rejected. Compositions and unknown/changed destinations
+            // remain cancellation boundaries; accepted operations are never replayed here.
+            if destinationChanged || destinationID == nil || markedTextRange != nil {
+                self.onCancel?()
+                cancelComposition()
+            }
         }
         self.focusRequest = focusRequest
+        self.destinationID = destinationID
         self.onText = onText
         self.onKey = onKey
         self.onCancel = onCancel
@@ -294,6 +305,10 @@ class RemoteKeyboardTextView: UITextView, UITextViewDelegate {
         mutationDepth -= 1
         if accepted { clearLocalText() }
     }
+
+    /// An explicit button action, never called from a SwiftUI view-update callback.
+    /// Only the locally retained, not-yet-admitted edit is eligible for another attempt.
+    func retryRemainingText() { forwardCommittedText() }
 
     override var keyCommands: [UIKeyCommand]? {
         guard inputIsEnabled, !inputHasEnded else { return [] }

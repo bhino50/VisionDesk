@@ -6,6 +6,31 @@ import XCTest
 
 @MainActor
 final class DirectPointerTests: XCTestCase {
+    func testTrackpadStrokeCanContinueBeyondPortraitPictureEdge() throws {
+        let size = CGSize(width: 500, height: 1000)
+        let image = CGSize(width: 1000, height: 2000)
+        let start = CGPoint(x: 0.9, y: 0.5)
+        let location = CGPoint(x: 650, y: 500) // +40% hand travel from x=450
+        let point = try XCTUnwrap(ScreenGesturePolicy.gesturePoint(location, in: size,
+                                                                   image: image, mode: .pointer))
+        XCTAssertEqual(point.x, 1.3, accuracy: 0.000001)
+        let (input, messages) = pointer()
+        input.placePointer(displayID: 1, at: CGPoint(x: 0.2, y: 0.5))
+        let token = UUID()
+        input.updateGesture(token: token, displayID: 1, mode: .pointer,
+                            start: start, point: start, translation: .zero)
+        input.finishGesture(token: token, displayID: 1, mode: .pointer,
+                            start: start, point: point, translation: CGSize(width: 200, height: 0))
+        XCTAssertEqual(messages().last?.x ?? -1, 0.6, accuracy: 0.000001)
+        XCTAssertFalse(messages().contains { $0.action == "leftDown" || $0.action == "leftUp" })
+        XCTAssertTrue(messages().allSatisfy { (0...1).contains($0.x ?? 0) && (0...1).contains($0.y ?? 0) })
+        for mode in [ScreenInteractionMode.direct, .interact, .scroll] {
+            let absolute = try XCTUnwrap(ScreenGesturePolicy.gesturePoint(location, in: size,
+                                                                        image: image, mode: mode))
+            XCTAssertEqual(absolute.x, 1, "Absolute gestures remain confined to the display")
+        }
+    }
+
     private func pointer() -> (PointerInput, () -> [DeskMessage]) {
         let input = PointerInput()
         var messages: [DeskMessage] = []

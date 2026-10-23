@@ -3,6 +3,25 @@ import XCTest
 @testable import VisionDesk
 
 final class DisplayWindowGeometryTests: XCTestCase {
+    func testOverviewPreviewFillsPortraitAndLandscapeCardsWithoutLetterboxing() throws {
+        for image in [CGSize(width: 1080, height: 1920), CGSize(width: 1920, height: 1080),
+                      CGSize(width: 5120, height: 1440)] {
+            let ratio = DisplayGeometry.previewAspectRatio(image: image)
+            let card = CGSize(width: 320, height: 320 / ratio)
+            let rect = try XCTUnwrap(DisplayGeometry.imageRect(in: card, image: image))
+            XCTAssertEqual(rect.width, card.width, accuracy: 0.0001)
+            XCTAssertEqual(rect.height, card.height, accuracy: 0.0001)
+        }
+        XCTAssertLessThan(DisplayGeometry.previewAspectRatio(image: CGSize(width: 1080, height: 1920)), 1)
+    }
+
+    func testInvalidPreviewDimensionsUseASafeFallback() {
+        for image in [CGSize.zero, CGSize(width: -1, height: 100),
+                      CGSize(width: CGFloat.infinity, height: 100), CGSize(width: 100, height: CGFloat.nan)] {
+            XCTAssertEqual(DisplayGeometry.previewAspectRatio(image: image), 1.6)
+        }
+    }
+
     func testPortraitLandscapeAndUltrawidePreserveTheirAspect() throws {
         for image in [CGSize(width: 1080, height: 1920), CGSize(width: 1920, height: 1080),
                       CGSize(width: 5120, height: 1440), CGSize(width: 1920, height: 1920)] {

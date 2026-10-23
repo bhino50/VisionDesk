@@ -195,7 +195,8 @@ final class PointerInput {
         start: CGPoint, point: CGPoint, translation: CGSize
     ) {
         guard !retiredGestureTokens.contains(token) else { return }
-        guard canControl(displayID), valid(start), valid(point),
+        guard canControl(displayID), valid(start),
+              point.x.isFinite, point.y.isFinite, mode == .pointer || valid(point),
               translation.width.isFinite, translation.height.isFinite else {
             cancelGesture(token: token)
             return

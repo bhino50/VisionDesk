@@ -8,6 +8,82 @@ import XCTest
 /// these lifecycle checks cannot raise a keyboard or steal focus from the app under test.
 @MainActor
 final class RemoteKeyboardInputTests: XCTestCase {
+    func testExplicitRetrySendsRetainedTextOnceWithoutAddingAKey() {
+        let recorder = Recorder()
+        recorder.acceptsText = false
+        let view = makeView(recorder)
+        let commands = RemoteKeyboardCommands()
+        commands.attach(view)
+        view.insertText("held")
+        recorder.events.removeAll()
+        recorder.acceptsText = true
+        commands.retryRemainingText()
+        commands.retryRemainingText()
+        XCTAssertEqual(recorder.events, [.text("held")])
+        XCTAssertEqual(view.text, "")
+        view.endInputSession()
+    }
+
+    func testSameDestinationRefocusPreservesRejectedTextWithoutAutomaticallySending() {
+        let recorder = Recorder()
+        recorder.acceptsText = false
+        let view = RemoteKeyboardTextView()
+        configure(view, recorder: recorder, destinationID: 1)
+        view.insertText("held")
+        recorder.events.removeAll()
+        recorder.acceptsText = true
+        configure(view, recorder: recorder, focusRequest: UUID(), destinationID: 1)
+        XCTAssertEqual(view.text, "held", "Show keyboard only renews focus on the same screen")
+        XCTAssertTrue(recorder.events.isEmpty, "SwiftUI configuration must not mutate delivery state")
+        view.retryRemainingText()
+        XCTAssertEqual(recorder.events, [.text("held")])
+        view.endInputSession()
+    }
+
+    func testRefocusStillDiscardsCompositionAndChangedDestinationDiscardsRetainedText() {
+        let recorder = Recorder()
+        recorder.acceptsText = false
+        let view = RemoteKeyboardTextView()
+        configure(view, recorder: recorder, destinationID: 1)
+        view.setMarkedText("candidate", selectedRange: NSRange(location: 9, length: 0))
+        configure(view, recorder: recorder, focusRequest: UUID(), destinationID: 1)
+        XCTAssertEqual(view.text, "")
+        view.insertText("old screen")
+        recorder.events.removeAll()
+        configure(view, recorder: recorder, focusRequest: UUID(), destinationID: 2)
+        recorder.acceptsText = true
+        view.retryRemainingText()
+        XCTAssertEqual(view.text, "")
+        XCTAssertTrue(recorder.events.isEmpty)
+        view.endInputSession()
+    }
+
+    func testRetryCannotCommitMarkedTextOrSendAfterDisableDetachOrDismantle() {
+        let recorder = Recorder()
+        let view = makeView(recorder)
+        let commands = RemoteKeyboardCommands()
+        commands.attach(view)
+        view.setMarkedText("candidate", selectedRange: NSRange(location: 9, length: 0))
+        commands.retryRemainingText()
+        XCTAssertTrue(recorder.events.isEmpty)
+        configure(view, recorder: recorder, isEnabled: false)
+        commands.retryRemainingText()
+        XCTAssertTrue(recorder.events.isEmpty)
+        configure(view, recorder: recorder)
+        recorder.acceptsText = false
+        view.insertText("held")
+        recorder.events.removeAll()
+        recorder.acceptsText = true
+        commands.detach(view)
+        commands.retryRemainingText()
+        XCTAssertEqual(view.text, "held")
+        XCTAssertTrue(recorder.events.isEmpty)
+        commands.attach(view)
+        view.endInputSession()
+        commands.retryRemainingText()
+        XCTAssertTrue(recorder.events.isEmpty)
+    }
+
     func testOnlyTheKeyboardWindowsFocusLossCancelsPendingDeliveryAndComposition() {
         let view = FocusProbe()
         var cancellations = 0
@@ -361,11 +437,11 @@ final class RemoteKeyboardInputTests: XCTestCase {
     }
 
     private func configure(_ view: RemoteKeyboardTextView, recorder: Recorder,
-                           isEnabled: Bool = true, focusRequest: UUID = UUID()) {
+                           isEnabled: Bool = true, focusRequest: UUID = UUID(), destinationID: UInt32? = nil) {
         view.configure(isEnabled: isEnabled, focusRequest: focusRequest, onText: { text in
             recorder.events.append(.text(text))
             return recorder.acceptsText
-        }, onKey: { recorder.events.append(.key($0)) })
+        }, onKey: { recorder.events.append(.key($0)) }, destinationID: destinationID)
     }
 
     private func settleActor() async {

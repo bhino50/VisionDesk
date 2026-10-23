@@ -2,6 +2,15 @@ import CoreGraphics
 
 /// Screen coordinates are relative to the visible image, never the letterbox.
 enum DisplayGeometry {
+    /// Preview cards use the source's shape too, so portrait targets are not letterboxed
+    /// into a landscape hit area before the wearer opens their window.
+    static func previewAspectRatio(image: CGSize) -> CGFloat {
+        guard image.width.isFinite, image.height.isFinite,
+              image.width > 0, image.height > 0 else { return 16 / 10 }
+        let ratio = image.width / image.height
+        return ratio.isFinite && ratio > 0 ? ratio : 16 / 10
+    }
+
     struct WindowSizing: Equatable {
         let preferred: CGSize
         let minimum: CGSize

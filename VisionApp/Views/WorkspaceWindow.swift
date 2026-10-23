@@ -26,23 +26,27 @@ struct WorkspaceWindow: View {
             if model.isLinked {
                 connectedWorkspace
             } else {
-                ScrollView {
-                    VStack(spacing: 18) {
-                        if showingDetails {
-                            HStack(alignment: .top) {
-                                ConnectionDetailsPanel(model: model)
-                                Button("Done") { showingDetails = false }
-                            }
-                        }
-                        PairingPanel(model: model)
-                    }
-                }
+                PairingPanel(model: model)
             }
         }
         .padding(28)
         .frame(minWidth: 720, idealWidth: 820, minHeight: 600, idealHeight: 720)
         .glassBackgroundEffect()
         .modifier(DeskWindowLifecycle(model: model))
+        .sheet(isPresented: Binding(
+            get: { showingDetails && !model.isLinked },
+            set: { showingDetails = $0 }
+        )) {
+            NavigationStack {
+                ScrollView { ConnectionDetailsPanel(model: model) }
+                    .navigationTitle("Connection details")
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showingDetails = false }
+                        }
+                    }
+            }
+        }
     }
 
     private var header: some View {
@@ -220,7 +224,9 @@ private struct DisplayOverviewCard: View {
                                 .foregroundStyle(.secondary)
                             }
                         }
-                        .aspectRatio(16 / 10, contentMode: .fit)
+                        .aspectRatio(DisplayGeometry.previewAspectRatio(image: CGSize(
+                            width: stream.info.width, height: stream.info.height
+                        )), contentMode: .fit)
                         HStack {
                             Text("\(number)")
                                 .font(.headline.monospacedDigit())
@@ -271,13 +277,13 @@ private struct WorkspaceHelpPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Make the space yours").font(.title3.weight(.semibold))
-            Label("Open one screen, or Open All to work across your physical Mac displays.",
+            Label("Open one screen, or Open All to work across your shared Mac screens.",
                   systemImage: "square.grid.2x2")
             Label("Move each window using its bottom window bar. Resize it from a lower corner.",
                   systemImage: "arrow.up.left.and.arrow.down.right")
             Label("Use Focus view inside a screen to make more room for your desktop.",
                   systemImage: "arrow.up.left.and.arrow.down.right.rectangle")
-            Label("Pinch and move to place the pointer. A quick pinch clicks where that pointer is. Use Drag or Scroll for those actions.",
+            Label("Point & Click taps the target directly and drags when you pinch and move. Trackpad moves the existing pointer; Scroll pans the page.",
                   systemImage: "cursorarrow.motionlines")
             Label("Click the intended Mac text field before opening Keyboard. The Mac’s focused app receives your typing.",
                   systemImage: "keyboard")

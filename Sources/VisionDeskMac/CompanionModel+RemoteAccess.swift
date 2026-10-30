@@ -74,6 +74,7 @@ extension CompanionModel {
         guard screenCaptureAccess() else { remoteFeedback = .needsScreenRecording; return .refused }
         guard !allowControl || refreshControlPermission() else { remoteFeedback = .needsAccessibility; return .refused }
         let firstPairing = !remoteConfiguration.enabled
+        let sharingWasStopped = remoteConfiguration.enabled && remoteConfiguration.sharingStopped
         var newKey: PairingKey?
         do {
             if try loadRemoteKey() == nil {
@@ -91,7 +92,8 @@ extension CompanionModel {
         peerPausedControl = remoteConfiguration.peerPaused
         adoptRemoteConfiguration(RemoteHostConfiguration(enabled: true, address: endpoint.formatted,
                                                          allowControl: allowControl, keepAwake: keepAwake,
-                                                         ownerPaused: ownerPausedControl, peerPaused: peerPausedControl))
+                                                         ownerPaused: ownerPausedControl, peerPaused: peerPausedControl,
+                                                         sharingStopped: sharingWasStopped))
         testMode = false
         if let newKey {
             revealPairingKey(newKey, for: keyReveal.firstPairing)
@@ -100,6 +102,10 @@ extension CompanionModel {
             remoteFeedback = firstPairing
                 ? .done("Remote access is on. Your saved Vision Pro pairing still works.")
                 : .done("Address changed to \(endpoint.host). On Vision Pro, add this Mac again with the new address.")
+        }
+        if sharingWasStopped {
+            remoteFeedback = .done("Address saved. Sharing remains stopped. Choose Start Sharing when you are ready.")
+            return .saved
         }
         start(allowControl: allowControl)
         return .restarted

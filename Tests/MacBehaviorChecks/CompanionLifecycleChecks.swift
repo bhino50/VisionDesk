@@ -69,7 +69,10 @@ func runCompanionLifecycleChecks(_ runner: CheckRunner) async {
         runner.expect(!prepared, "missing credentials must not start ScreenCaptureKit preparation")
         runner.expect(!model.busy && !model.sharing, "terminal configuration failure must remain idle")
         runner.expectEqual(model.status, "Remote pairing key is missing. Enable remote access again on this Mac.", "actionable repair message")
-        runner.expectEqual(model.remoteConfiguration, configuration, "preserve settings for explicit repair")
+        var stoppedConfiguration = configuration
+        stoppedConfiguration.sharingStopped = true
+        runner.expectEqual(model.remoteConfiguration, stoppedConfiguration,
+                           "preserve settings for explicit repair while persisting the terminal stop")
         try? await Task.sleep(nanoseconds: 2_300_000_000)
         runner.expectEqual(loads, 1, "missing credentials must not restart after the first retry interval")
         model.stop()

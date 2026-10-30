@@ -30,6 +30,76 @@ func runRemoteAccessChecks(_ runner: CheckRunner) async {
                        screenCaptureAccess: { true }, controlAccess: controlAccess(controlAllowed), keyReveal: quickReveal)
     }
 
+    await runner.check("Remote Stop Sharing survives preferences reload and every automatic start path") {
+        let suite = "VisionDesk.StopSharingChecks.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var configuration = checkRemoteConfiguration
+        configuration.allowControl = true
+        configuration.ownerPaused = true
+        configuration.save(to: defaults)
+        let storage = RemoteStorageRecorder(key: PairingKey.generate())
+        var keyLoads = 0
+        var prepared = 0
+        let gate = PreparationGate()
+        @MainActor func restored() -> CompanionModel {
+            CompanionModel(lanConfiguration: LANHostConfiguration(enabled: true), saveLANConfiguration: { _ in },
+                remoteConfiguration: RemoteHostConfiguration.load(from: defaults), localAddresses: checkLocalAddresses,
+                loadRemoteKey: { keyLoads += 1; return try storage.load() }, saveRemoteKey: storage.save,
+                deleteRemoteKey: storage.delete, saveRemoteConfiguration: { $0.save(to: defaults) },
+                contentProvider: { prepared += 1; await gate.waitUntilReleased(); throw CheckError.preparationAbandoned },
+                inventory: { [syntheticDisplay(1)] }, liveSession: { available },
+                keepAwake: KeepAwakeRecorder().hold, screenCaptureAccess: { true }, controlAccess: controlAccess(true))
+        }
+        let original = restored()
+        original.stop()
+        runner.expect(!original.lanConfiguration.enabled, "manual stop also withdraws stale nearby availability")
+        let saved = RemoteHostConfiguration.load(from: defaults)
+        runner.expect(saved.sharingStopped && saved.enabled && saved.ownerPaused && saved.allowControl,
+                      "stop is durable without changing mode, pairing or standing control decisions")
+        let relaunched = restored()
+        let lifecycle = CompanionWindowLifecycle(activate: {})
+        _ = lifecycle.windowAppeared(relaunched, arguments: [])
+        relaunched.startConfiguredRemoteAccess()
+        for notice in HostSessionNotice.allCases { relaunched.receiveSessionNotice(notice) }
+        relaunched.displayConfigurationChanged()
+        relaunched.selfHealRemoteHosting(now: 1_000_000)
+        relaunched.start(allowControl: true, resetControlPause: false)
+        await drainMainActor()
+        runner.expect(!relaunched.busy && !relaunched.sharing && !relaunched.restartPending && !relaunched.controlEnabled,
+                      "relaunch, wake, retry and inventory changes cannot resume sharing")
+        runner.expect(keyLoads == 0 && prepared == 0 && storage.keySaves == 0,
+                      "automatic paths stop before credential access or capture")
+        relaunched.setRemoteKeepAwake(false)
+        _ = relaunched.configureRemoteAccess(address: saved.address, allowControl: true, keepAwake: false)
+        runner.expect(relaunched.remoteConfiguration.sharingStopped, "editing preferences is not Start Sharing")
+        runner.expectEqual(relaunched.configureRemoteAccess(address: "100.64.0.77", allowControl: true, keepAwake: false),
+                           .saved, "a stopped host reports an address save, not a restart")
+        runner.expect(relaunched.remoteConfiguration.sharingStopped && !relaunched.busy && !relaunched.restartPending,
+                      "saving a different VPN address cannot override Stop Sharing")
+        runner.expect(RemoteHostConfiguration.load(from: defaults).sharingStopped,
+                      "the changed address retains Stop across the next process")
+        let loadsBeforeStart = keyLoads
+        relaunched.start()
+        await drainMainActor()
+        runner.expect(relaunched.busy && keyLoads == loadsBeforeStart + 1 && prepared == 1, "explicit owner Start reuses remote pairing")
+        runner.expect(!RemoteHostConfiguration.load(from: defaults).sharingStopped, "explicit Start restores availability")
+        runner.expectEqual(relaunched.remoteConfiguration.address, "100.64.0.77:58271", "Start uses the updated VPN route")
+        relaunched.stop(); gate.release()
+        await drainMainActor()
+    }
+
+    await runner.check("Remote internal pauses preserve availability while macOS owner Stop persists revocation") {
+        let storage = RemoteStorageRecorder(key: PairingKey.generate())
+        let model = host(storage, keepAwake: KeepAwakeRecorder().hold)
+        model.stop(manual: false)
+        runner.expect(!model.remoteConfiguration.sharingStopped && model.persistentHostingRequested,
+                      "capture rebuild and sleep do not become a permanent owner stop")
+        model.captureEnded(CaptureFailure(NSError(domain: SCStreamErrorDomain, code: SCStreamError.Code.userStopped.rawValue)))
+        runner.expect(model.remoteConfiguration.sharingStopped && storage.savedConfigurations.last?.sharingStopped == true,
+                      "macOS sharing controls use the same durable revocation")
+    }
+
     await runner.check("Private VPN endpoints use canonical literals, a local interface and the fixed port") {
         let allowed = ["10.24.0.8", "172.20.0.8", "192.168.40.8", "100.64.0.8", "[fd12:3456::8]", "[fc00::8]"]
         for text in allowed {

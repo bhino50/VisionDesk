@@ -7,7 +7,7 @@ import Network
 @MainActor
 protocol BonjourBrowsing: AnyObject {
     func start(onState: @escaping @Sendable (NWBrowser.State) -> Void,
-               onResults: @escaping @Sendable (Set<NWBrowser.Result>) -> Void)
+               onResults: @escaping @Sendable (BonjourResults<Set<NWBrowser.Result>>) -> Void)
     func cancel()
 }
 
@@ -15,6 +15,9 @@ protocol BonjourBrowsing: AnyObject {
 @MainActor
 private final class SystemBonjourBrowser: BonjourBrowsing {
     private let browser: NWBrowser
+    private let inbox = BonjourResultInbox<Set<NWBrowser.Result>>()
+    private var deliveryTimer: Timer?
+    private let queue = DispatchQueue(label: "VisionDesk.Bonjour", qos: .utility)
 
     init() {
         let parameters = NWParameters.tcp
@@ -23,16 +26,74 @@ private final class SystemBonjourBrowser: BonjourBrowsing {
     }
 
     func start(onState: @escaping @Sendable (NWBrowser.State) -> Void,
-               onResults: @escaping @Sendable (Set<NWBrowser.Result>) -> Void) {
-        browser.stateUpdateHandler = onState
-        browser.browseResultsChangedHandler = { results, _ in onResults(results) }
-        browser.start(queue: .main)
+               onResults: @escaping @Sendable (BonjourResults<Set<NWBrowser.Result>>) -> Void) {
+        let inbox = self.inbox
+        let browser = self.browser
+        browser.stateUpdateHandler = { state in
+            DispatchQueue.main.async { onState(state) }
+        }
+        browser.browseResultsChangedHandler = { results, _ in
+            // Count is constant-time. Never copy, traverse or sort an oversized snapshot.
+            if !inbox.offer(count: results.count, snapshot: { results }) { browser.cancel() }
+        }
+        // One latest bounded snapshot, pulled at most twice per second. Advertisement churn
+        // cannot enqueue a task for every update or accumulate work while the main actor is busy.
+        let timer = Timer(timeInterval: 0.5, repeats: true) { _ in
+            if let update = inbox.take() { onResults(update) }
+        }
+        deliveryTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        browser.start(queue: queue)
     }
 
     func cancel() {
+        deliveryTimer?.invalidate()
+        deliveryTimer = nil
+        inbox.close()
         browser.stateUpdateHandler = nil
         browser.browseResultsChangedHandler = nil
         browser.cancel()
+    }
+}
+
+/// Limits untrusted discovery before it crosses onto the main actor. Overflow ends this
+/// search explicitly instead of showing an arbitrary truncated list that can hide the real Mac.
+enum BonjourResults<Snapshot> {
+    case snapshot(Snapshot)
+    case overflow
+}
+
+final class BonjourResultInbox<Snapshot>: @unchecked Sendable {
+    static var maximumResults: Int { 64 }
+    private let lock = NSLock()
+    private var pending: BonjourResults<Snapshot>?
+    private var closed = false
+
+    /// The snapshot closure is evaluated only for an admitted, bounded update.
+    @discardableResult
+    func offer(count: Int, snapshot: () -> Snapshot) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !closed else { return false }
+        guard count <= Self.maximumResults else {
+            pending = .overflow
+            closed = true
+            return false
+        }
+        pending = .snapshot(snapshot())
+        return true
+    }
+
+    func take() -> BonjourResults<Snapshot>? {
+        lock.lock(); defer { lock.unlock() }
+        let result = pending
+        pending = nil
+        return result
+    }
+
+    func close() {
+        lock.lock(); defer { lock.unlock() }
+        closed = true
+        pending = nil
     }
 }
 
@@ -41,6 +102,8 @@ public final class DeskBrowser: ObservableObject {
     @Published public private(set) var results: [NWBrowser.Result] = []
     /// One of the strings below. The headset app matches them exactly to choose its guidance.
     @Published public private(set) var status = "Discovery stopped."
+
+    static let overflowStatus = "Too many nearby services. Discovery stopped. Use a saved Mac or Connect by Address, or search again on a quieter network."
 
     static let stoppedStatus = "Discovery stopped."
     static let searchingStatus = "Looking for Macs ready to pair."
@@ -118,14 +181,20 @@ public final class DeskBrowser: ObservableObject {
         }
     }
 
-    private func show(_ found: Set<NWBrowser.Result>, generation: UInt64) {
+    private func show(_ update: BonjourResults<Set<NWBrowser.Result>>, generation: UInt64) {
         guard self.generation == generation, browser != nil else { return }
-        results = found.filter {
+        guard case .snapshot(let found) = update,
+              found.count <= BonjourResultInbox<Set<NWBrowser.Result>>.maximumResults else {
+            end(with: Self.overflowStatus)
+            return
+        }
+        let sorted = found.filter {
             if case .service = $0.endpoint { return true }
             return false
         }.sorted { lhs, rhs in
             Self.sortKey(lhs.endpoint).localizedStandardCompare(Self.sortKey(rhs.endpoint)) == .orderedAscending
         }
+        if results != sorted { results = sorted }
     }
 
     /// Replaces a failed browser after a wait, at most `restartDelays.count` times per `start()`.

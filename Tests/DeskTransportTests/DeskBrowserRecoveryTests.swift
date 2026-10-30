@@ -157,6 +157,70 @@ final class DeskBrowserRecoveryTests: XCTestCase {
         XCTAssertEqual(browser.status, "Discovery stopped.")
     }
 
+    func testNormalBonjourServiceIsDeliveredAndRemovedThroughSystemBrowser() async throws {
+        let name = "VisionDesk-Test-\(UUID().uuidString)"
+        let listener = try NWListener(using: .tcp)
+        listener.service = NWListener.Service(name: name, type: "_visiondesk._tcp")
+        listener.newConnectionHandler = { $0.cancel() }
+        let browser = DeskBrowser()
+        defer { browser.stop(); listener.cancel() }
+        listener.start(queue: DispatchQueue(label: "VisionDesk.TestAdvertisement"))
+        browser.start()
+        @MainActor func containsTestService() -> Bool {
+            browser.results.contains {
+                guard case .service(let found, _, _, _) = $0.endpoint else { return false }
+                return found == name
+            }
+        }
+        try await waitUntil(timeout: 10) { containsTestService() }
+        XCTAssertLessThanOrEqual(browser.results.count, 64)
+        listener.cancel()
+        try await waitUntil(timeout: 10) { !containsTestService() }
+    }
+
+    func testDiscoveryFloodStopsUntilExplicitSearchAndIgnoresStaleOverflow() {
+        let (browser, fakes, clock) = makeSubject()
+        browser.start()
+        fakes.made[0].overflow()
+        XCTAssertEqual(browser.status, DeskBrowser.overflowStatus)
+        XCTAssertTrue(browser.results.isEmpty)
+        XCTAssertTrue(fakes.made[0].isCancelled)
+        XCTAssertTrue(clock.requested.isEmpty, "Floods must not trigger automatic rediscovery")
+        fakes.made[0].report(.ready)
+        XCTAssertEqual(browser.status, DeskBrowser.overflowStatus)
+        browser.start()
+        fakes.made[0].overflow()
+        XCTAssertEqual(browser.status, searching)
+        XCTAssertFalse(fakes.made[1].isCancelled)
+        browser.stop()
+    }
+
+    func testDiscoveryInboxRejectsOversizeBeforeMaterializingAndLatchesOverflow() {
+        let inbox = BonjourResultInbox<[Int]>()
+        XCTAssertTrue(inbox.offer(count: 64) { Array(0..<64) })
+        XCTAssertFalse(inbox.offer(count: 100_000) {
+            XCTFail("An oversized set must never be traversed or retained")
+            return []
+        })
+        XCTAssertFalse(inbox.offer(count: 1) { [1] }, "Small follow-up cannot erase overload")
+        guard case .overflow = inbox.take() else { return XCTFail("Overflow must reach the UI") }
+        XCTAssertNil(inbox.take())
+    }
+
+    func testDiscoveryChurnKeepsOnlyLatestSnapshotUntilDelivery() {
+        let inbox = BonjourResultInbox<[Int]>()
+        for i in 0..<100_000 { XCTAssertTrue(inbox.offer(count: 1) { [i] }) }
+        guard case .snapshot(let snapshot) = inbox.take() else { return XCTFail("Missing snapshot") }
+        XCTAssertEqual(snapshot, [99_999])
+        XCTAssertNil(inbox.take(), "One delivery consumes the entire burst")
+        XCTAssertTrue(inbox.offer(count: 0) { [] })
+        guard case .snapshot(let removed) = inbox.take() else { return XCTFail("Missing removal") }
+        XCTAssertTrue(removed.isEmpty)
+        inbox.close()
+        XCTAssertFalse(inbox.offer(count: 1) { XCTFail("Stopped browser must not retain late input"); return [] })
+        XCTAssertNil(inbox.take())
+    }
+
     // MARK: - Helpers
 
     private func makeSubject() -> (DeskBrowser, FakeBrowsers, ManualClock) {
@@ -203,16 +267,19 @@ final class DeskBrowserRecoveryTests: XCTestCase {
 @MainActor
 private final class FakeBrowser: BonjourBrowsing {
     private var onState: (@Sendable (NWBrowser.State) -> Void)?
+    private var onResults: (@Sendable (BonjourResults<Set<NWBrowser.Result>>) -> Void)?
     private(set) var isCancelled = false
 
     func start(onState: @escaping @Sendable (NWBrowser.State) -> Void,
-               onResults: @escaping @Sendable (Set<NWBrowser.Result>) -> Void) {
+               onResults: @escaping @Sendable (BonjourResults<Set<NWBrowser.Result>>) -> Void) {
         self.onState = onState
+        self.onResults = onResults
     }
 
     func cancel() { isCancelled = true }
 
     func report(_ state: NWBrowser.State) { onState?(state) }
+    func overflow() { onResults?(.overflow) }
 }
 
 @MainActor

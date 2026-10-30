@@ -220,6 +220,7 @@ final class CompanionModel: ObservableObject {
         self.screenCaptureAccess = screenCaptureAccess
         self.keyReveal = keyReveal
         self.remoteConfiguration = remoteConfiguration
+        self.manuallyStopped = remoteConfiguration.enabled && remoteConfiguration.sharingStopped
         input = InputOutput(permission: controlAccess)
         let observed = liveSession()
         hostSession.locked = observed.screenLocked
@@ -263,6 +264,13 @@ final class CompanionModel: ObservableObject {
 
     func start(allowControl: Bool = false, resetControlPause: Bool = true) {
         guard !sharing, !busy else { return }
+        // Automatic starts cannot renew availability revoked by the owner.
+        if remoteConfiguration.enabled && remoteConfiguration.sharingStopped {
+            guard resetControlPause else { return }
+            var configuration = remoteConfiguration
+            configuration.sharingStopped = false
+            adoptRemoteConfiguration(configuration)
+        }
         manuallyStopped = false
         remoteHostingRequested = true
         if !remoteConfiguration.enabled { setLANAvailability(true) }
@@ -438,7 +446,17 @@ final class CompanionModel: ObservableObject {
     /// stop also ends any failing recovery run, so the next start gets a fresh recovery budget.
     /// `headsetNotice` is what a connected headset is told about why.
     func stop(manual: Bool = true, retainKeepAwake: Bool = false, headsetNotice: String = HeadsetNotice.stopped) {
-        if manual { if !remoteConfiguration.enabled { setLANAvailability(false) }; manuallyStopped = true; resumeTask?.cancel(); resumeTask = nil; backoff.reset() }
+        if manual {
+            manuallyStopped = true
+            resumeTask?.cancel(); resumeTask = nil; backoff.reset()
+            // Stop survives a new process and cannot fall back to stale nearby availability.
+            setLANAvailability(false)
+            if remoteConfiguration.enabled && !remoteConfiguration.sharingStopped {
+                var configuration = remoteConfiguration
+                configuration.sharingStopped = true
+                adoptRemoteConfiguration(configuration)
+            }
+        }
         if !retainKeepAwake { keepAwake.release() }
         peerUsesVideo = false; peerSupportsVideo = false
         keyboardReceipts.removeAll(); keyboardReceiptOrder.removeAll()

@@ -102,6 +102,8 @@ enum RemoteAccessChange: Equatable {
     /// The address was already the saved one. Only preferences can have changed, and those apply
     /// without a restart, so a connected headset stays connected.
     case unchanged
+    /// Saved a different address while preserving the owner's Stop Sharing decision.
+    case saved
     /// Saved, and sharing restarted at the address.
     case restarted
 }

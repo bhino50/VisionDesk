@@ -3,7 +3,9 @@ import DeskCore
 import DeskTransport
 
 extension CompanionModel {
-    var persistentHostingRequested: Bool { remoteConfiguration.enabled || lanConfiguration.enabled }
+    var persistentHostingRequested: Bool {
+        remoteConfiguration.enabled ? !remoteConfiguration.sharingStopped : lanConfiguration.enabled
+    }
     var reconnectControlAllowed: Bool {
         remoteConfiguration.enabled ? remoteConfiguration.allowControl : lanConfiguration.allowControl
     }

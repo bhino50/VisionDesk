@@ -10,6 +10,8 @@ struct RemoteHostConfiguration: Equatable {
     var keepAwake: Bool
     var ownerPaused = false
     var peerPaused = false
+    /// Owner availability revocation; separate from VPN mode and retained pairing.
+    var sharingStopped = false
 
     static let disabled = Self(enabled: false, address: "", allowControl: false, keepAwake: true)
 
@@ -19,7 +21,8 @@ struct RemoteHostConfiguration: Equatable {
              allowControl: defaults.bool(forKey: "remote.allowControl"),
              keepAwake: defaults.object(forKey: "remote.keepAwake") as? Bool ?? true,
              ownerPaused: defaults.bool(forKey: "remote.ownerPaused"),
-             peerPaused: defaults.bool(forKey: "remote.peerPaused"))
+             peerPaused: defaults.bool(forKey: "remote.peerPaused"),
+             sharingStopped: defaults.bool(forKey: "remote.sharingStopped"))
     }
 
     func save(to defaults: UserDefaults = .standard) {
@@ -29,6 +32,7 @@ struct RemoteHostConfiguration: Equatable {
         defaults.set(keepAwake, forKey: "remote.keepAwake")
         defaults.set(ownerPaused, forKey: "remote.ownerPaused")
         defaults.set(peerPaused, forKey: "remote.peerPaused")
+        defaults.set(sharingStopped, forKey: "remote.sharingStopped")
     }
 }
 

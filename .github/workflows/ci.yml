@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      upload_test_evidence:
+        description: Upload and verify native test evidence even when tests pass
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -72,12 +77,30 @@ jobs:
           # A test failure may leave it booted. Delete also handles a shutdown device.
           xcrun simctl shutdown "$VISION_DESK_SIM_ID" 2> build/vision-tests-ci/shutdown.log || true
           xcrun simctl delete "$VISION_DESK_SIM_ID"
-      - name: Preserve native test failure evidence
-        if: always() && (failure() || cancelled())
+      - name: Validate requested native test evidence
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.upload_test_evidence
+        run: |
+          shopt -s nullglob
+          native_runs=(build/vision-tests-ci/run.*)
+          if (( ${#native_runs[@]} != 1 )); then
+            echo "Expected exactly one native test run for evidence verification." >&2
+            exit 1
+          fi
+          native_run="${native_runs[0]}"
+          if [[ ! -s "$native_run/xcodebuild.log" || ! -d "$native_run/VisionTests.xcresult" ]]; then
+            echo "Native test evidence requires a nonempty log and a result bundle." >&2
+            exit 1
+          fi
+          xcrun xcresulttool get test-results summary \
+            --path "$native_run/VisionTests.xcresult" --compact \
+            > "$native_run/summary.json"
+      - name: Preserve native test evidence
+        id: native_test_evidence
+        if: always() && (failure() || cancelled() || (github.event_name == 'workflow_dispatch' && inputs.upload_test_evidence))
         timeout-minutes: 5
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: visionos-test-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          name: visionos-test-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             build/vision-tests-ci/*.json
             build/vision-tests-ci/*.txt
@@ -85,6 +108,7 @@ jobs:
             build/vision-tests-ci/run.*/simulators.json
             build/vision-tests-ci/run.*/sdk.txt
             build/vision-tests-ci/run.*/xcodebuild.log
+            build/vision-tests-ci/run.*/summary.json
             build/vision-tests-ci/run.*/VisionTests.xcresult/
-          if-no-files-found: warn
+          if-no-files-found: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_test_evidence && 'error' || 'warn' }}
           retention-days: 7

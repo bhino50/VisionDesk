@@ -71,7 +71,7 @@ xcrun swiftc \
     -target "$TARGET_TRIPLE" \
     -Onone -g \
     -module-name MacBehaviorChecks \
-    -I "$BIN_DIR" -I "$OUT_DIR/bridge-module" -I "$ROOT_DIR/Sources/VirtualDisplayBridge/include" -L "$BIN_DIR" -lDeskCore -lDeskTransport -lVirtualDisplayBridge \
+    -I "$BIN_DIR" -I "$BIN_DIR/Modules" -I "$OUT_DIR/bridge-module" -I "$ROOT_DIR/Sources/VirtualDisplayBridge/include" -L "$BIN_DIR" -lDeskCore -lDeskTransport -lVirtualDisplayBridge \
     -o "$BINARY" \
     "${PRODUCTION_SOURCES[@]}" \
     "${CHECK_SOURCES[@]}"

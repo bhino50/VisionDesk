@@ -6,8 +6,8 @@ let package = Package(
     platforms: [.macOS(.v14), .visionOS(.v2)],
     products: [
         .library(name: "VirtualDisplayBridge", type: .static, targets: ["VirtualDisplayBridge"]),
-        .library(name: "DeskCore", targets: ["DeskCore"]),
-        .library(name: "DeskTransport", targets: ["DeskTransport"]),
+        .library(name: "DeskCore", type: .static, targets: ["DeskCore"]),
+        .library(name: "DeskTransport", type: .static, targets: ["DeskTransport"]),
         .executable(name: "VisionDeskMac", targets: ["VisionDeskMac"])
     ],
     targets: [

@@ -431,7 +431,9 @@ enum ConnectionProblem: Equatable {
             default: self = .other
             }
         case .tls: self = .secureHandshake
-        @unknown default: self = .other
+        // Specialized transports added by newer SDKs use the same generic guidance.
+        // Avoid naming those cases so this source still builds with older SDKs.
+        default: self = .other
         }
     }
 

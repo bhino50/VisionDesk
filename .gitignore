@@ -18,6 +18,7 @@ __pycache__/
 *.dmg
 *.ipa
 *.p12
+*.p8
 *.pfx
 *.pem
 *.key

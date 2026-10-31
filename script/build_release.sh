@@ -154,6 +154,8 @@ import subprocess
 import sys
 import zipfile
 root, output = map(Path, sys.argv[1:3])
+sys.path.insert(0, str(root / "script"))
+from release_archive import write_file
 spec = importlib.util.spec_from_file_location("release_privacy", root / "script/verify_release_privacy.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
@@ -161,20 +163,12 @@ for name, app in [("VisionDesk-macOS-arm64.zip", output / "macOS/VisionDeskMac.a
     with zipfile.ZipFile(output / name, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for path in sorted(app.rglob("*")):
             if path.is_file():
-                info = zipfile.ZipInfo(app.name + "/" + path.relative_to(app).as_posix(), date_time=(2020, 1, 1, 0, 0, 0))
-                info.create_system = 3
-                info.external_attr = (path.stat().st_mode & 0o777) << 16
-                info.compress_type = zipfile.ZIP_DEFLATED
-                archive.writestr(info, path.read_bytes(), compresslevel=9)
+                write_file(archive, path, app.name + "/" + path.relative_to(app).as_posix())
 version = plistlib.loads((root / "script/MacInfo.plist").read_bytes())["CFBundleShortVersionString"]
 source_name = f"VisionDesk-{version}-source.zip"
 with zipfile.ZipFile(output / source_name, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
     for path in module.source_inventory(root):
-        info = zipfile.ZipInfo(f"VisionDesk-{version}/" + path.relative_to(root).as_posix(), date_time=(2020, 1, 1, 0, 0, 0))
-        info.create_system = 3
-        info.external_attr = (path.stat().st_mode & 0o777) << 16
-        info.compress_type = zipfile.ZIP_DEFLATED
-        archive.writestr(info, path.read_bytes(), compresslevel=9)
+        write_file(archive, path, f"VisionDesk-{version}/" + path.relative_to(root).as_posix())
 toolchain = subprocess.run([sys.argv[3], "-version"], capture_output=True, text=True, check=True).stdout.strip().splitlines()
 report = {
     "sourceDigestSHA256": module.source_digest(root),

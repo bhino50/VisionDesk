@@ -145,39 +145,80 @@ final class DisplayWindowActivityTests: XCTestCase {
     }
 
     func testNativeDisplayRequestsCreateSelectedScreensAndReuseAnExistingOne() async throws {
-        let initial = Set(UIApplication.shared.connectedScenes.map { $0.session.persistentIdentifier })
-        let ids: Set<UInt32> = [777, 778, 779, 780]
-        var failed = false
-        for id in ids { DisplayWindowActivity.open(displayID: id) { failed = true } }
-        let deadline = ProcessInfo.processInfo.systemUptime + 10
-        var found: [DeskWindowAnchor.Anchor] = []
-        while !failed && ProcessInfo.processInfo.systemUptime < deadline {
-            let newScenes = UIApplication.shared.connectedScenes.filter { !initial.contains($0.session.persistentIdentifier) }
-            found = newScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
-                .flatMap { anchors(in: $0) }.filter { anchor in
-                    if case let .display(id) = anchor.boundKey { return ids.contains(id) }
-                    return false
-                }
-            if found.count == ids.count { break }
-            try await Task.sleep(nanoseconds: 50_000_000)
+        let initial = Set(UIApplication.shared.openSessions.map(\.persistentIdentifier))
+        // XCTest repeats a method in the same app process. A synchronous defer that merely
+        // requests destruction lets the next invocation reopen windows still being closed.
+        // Register awaited cleanup before creating anything, including for a failed assertion.
+        addTeardownBlock { @MainActor in
+            try await self.destroyTestScenes(preserving: initial)
         }
-        defer {
-            for scene in UIApplication.shared.connectedScenes where !initial.contains(scene.session.persistentIdentifier) {
-                UIApplication.shared.requestSceneSessionDestruction(scene.session, options: nil)
+        let ids: Set<UInt32> = [777, 778, 779, 780]
+        // Reuse the same display IDs after a completed close in this test as well as across
+        // XCTest iterations. This verifies the cleanup barrier against real scene lifecycle.
+        for _ in 0..<2 {
+            var failed = false
+            for id in ids { DisplayWindowActivity.open(displayID: id) { failed = true } }
+            let deadline = ProcessInfo.processInfo.systemUptime + 10
+            var found: [DeskWindowAnchor.Anchor] = []
+            while !failed && ProcessInfo.processInfo.systemUptime < deadline {
+                let newScenes = UIApplication.shared.connectedScenes.filter { !initial.contains($0.session.persistentIdentifier) }
+                found = newScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+                    .flatMap { anchors(in: $0) }.filter { anchor in
+                        if case let .display(id) = anchor.boundKey { return ids.contains(id) }
+                        return false
+                    }
+                if found.count == ids.count { break }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            XCTAssertFalse(failed, "Native scene activation must not reject the display requests.")
+            XCTAssertEqual(found.count, ids.count, "Every requested screen must bind its own real native scene.")
+            let foundIDs = Set(found.compactMap { anchor -> UInt32? in
+                guard case let .display(id) = anchor.boundKey else { return nil }
+                return id
+            })
+            XCTAssertEqual(foundIDs, ids, "The native scenes must represent every requested display exactly once.")
+            let sceneIDs = Set(found.compactMap { $0.window?.windowScene?.session.persistentIdentifier })
+            XCTAssertEqual(sceneIDs.count, ids.count, "Each requested display needs its own native scene.")
+            // A failed creation is already reported. Reuse cannot be meaningfully checked
+            // until all its prerequisite windows exist; teardown still runs on this return.
+            guard !failed, found.count == ids.count, foundIDs == ids, sceneIDs.count == ids.count else { return }
+            for anchor in found {
+                let key = try XCTUnwrap(anchor.boundKey)
+                XCTAssertEqual(anchor.boundRegistry?.entries[key]?.sessionID, anchor.window?.windowScene?.session.persistentIdentifier)
+            }
+            let before = Set(UIApplication.shared.connectedScenes.map { $0.session.persistentIdentifier })
+            for id in ids { DisplayWindowActivity.open(displayID: id) { failed = true } }
+            try await Task.sleep(nanoseconds: 400_000_000)
+            XCTAssertFalse(failed)
+            XCTAssertEqual(Set(UIApplication.shared.connectedScenes.map { $0.session.persistentIdentifier }), before,
+                           "Reopening a selected screen must activate its existing scene rather than create a duplicate.")
+            try await destroyTestScenes(preserving: initial)
+        }
+    }
+
+    private func destroyTestScenes(preserving initial: Set<String>) async throws {
+        let scenes = UIApplication.shared.connectedScenes.filter { !initial.contains($0.session.persistentIdentifier) }
+        let sessions = UIApplication.shared.openSessions.filter { !initial.contains($0.persistentIdentifier) }
+        let owned = Set(sessions.map(\.persistentIdentifier)).union(scenes.map { $0.session.persistentIdentifier })
+        let registries = scenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+            .flatMap { anchors(in: $0) }.compactMap(\.boundRegistry)
+        var failures: [String] = []
+        for session in sessions {
+            UIApplication.shared.requestSceneSessionDestruction(session, options: nil) { error in
+                failures.append(error.localizedDescription)
             }
         }
-        XCTAssertFalse(failed, "Native scene activation must not reject the display requests.")
-        XCTAssertEqual(found.count, ids.count, "Every requested screen must bind its own real native scene.")
-        for anchor in found {
-            let key = try XCTUnwrap(anchor.boundKey)
-            XCTAssertEqual(anchor.boundRegistry?.entries[key]?.sessionID, anchor.window?.windowScene?.session.persistentIdentifier)
+        try await Loopback.waitUntil(timeout: 10) {
+            !failures.isEmpty || (
+                UIApplication.shared.connectedScenes.allSatisfy { !owned.contains($0.session.persistentIdentifier) }
+                && UIApplication.shared.openSessions.allSatisfy { !owned.contains($0.persistentIdentifier) }
+                && registries.allSatisfy { registry in
+                    registry.entries.values.allSatisfy { !owned.contains($0.sessionID) }
+                }
+            )
         }
-        let before = Set(UIApplication.shared.connectedScenes.map { $0.session.persistentIdentifier })
-        DisplayWindowActivity.open(displayID: 777) { failed = true }
-        try await Task.sleep(nanoseconds: 400_000_000)
-        XCTAssertFalse(failed)
-        XCTAssertEqual(Set(UIApplication.shared.connectedScenes.map { $0.session.persistentIdentifier }), before,
-                       "Reopening a selected screen must activate its existing scene rather than create a duplicate.")
+        XCTAssertTrue(failures.isEmpty, "Native test-window cleanup failed: \(failures.joined(separator: "; "))")
+        guard failures.isEmpty else { throw Loopback.WaitError.timeout }
     }
 
     private func anchors(in view: UIView) -> [DeskWindowAnchor.Anchor] {

@@ -213,10 +213,8 @@ public struct SetupReadiness: Sendable, Equatable {
 
     private static func goalNote(_ count: Int) -> String? {
         guard count >= 1, count < recommendedDisplayCount else { return nil }
-        let missing = recommendedDisplayCount - count
-        return "Working with \(count) of \(recommendedDisplayCount) displays, which is a usable setup today. "
-            + "Connect the other \(missing) \(plural(missing, "monitor", "monitors")) to reach the four-screen goal. "
-            + "VisionDesk streams displays macOS already has; it does not create new ones."
+        return "Working with \(count) \(plural(count, "display", "displays")). One display is enough to work, and you can share up to \(recommendedDisplayCount). "
+            + "For more screens, connect a monitor or use Extra desktops when available, then choose screens under Displays."
     }
 
     private static func displayCheck(_ snapshot: SetupSnapshot) -> SetupCheck {
@@ -228,10 +226,9 @@ public struct SetupReadiness: Sendable, Equatable {
                               nextStep: "Connect or wake a display. This panel rechecks on its own while sharing is stopped.")
         }
         if count > maximumSharedDisplayCount {
-            let extra = count - maximumSharedDisplayCount
             return SetupCheck(id: .displays, track: .viewing, title: title, status: .actionNeeded,
                               detail: "\(count) displays connected. Sharing supports up to \(maximumSharedDisplayCount).",
-                              nextStep: "Disconnect \(extra) \(plural(extra, "display", "displays")) before starting to share.")
+                              nextStep: "Choose no more than \(maximumSharedDisplayCount) screens under Displays before starting to share. Other monitors can stay connected.")
         }
         let detail = count == recommendedDisplayCount
             ? "All \(recommendedDisplayCount) displays connected."

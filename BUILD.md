@@ -19,8 +19,12 @@ swift test
 ./script/test_startup.sh
 ./script/test_hardware_video.sh
 ./script/test_input_latency.sh
+python3 script/test_app_bundle.py
+python3 script/test_release_archive.py
+python3 script/test_mac_dmg.py
 python3 script/test_release_privacy.py
 python3 script/test_repository_privacy.py
+python3 script/verify_release_privacy.py --source .
 python3 script/verify_repository.py --source .
 ./script/build_vision.sh simulator
 ./script/test_vision.sh <existing-visionOS-simulator-UUID>
@@ -110,7 +114,12 @@ The Mac app includes the Enigo notice in its resources. Both app archives includ
 VisionDesk MIT license. Verify downloaded checksums with `shasum -a 256 -c SHA256SUMS`
 from the directory containing all release files. The manifest lists each payload file; it does not hash itself.
 
-The unpacked applications are retained in the same output directory for inspection. Publish only the documented DMG, three ZIPs, and three reports. Do not upload a working directory, Xcode archive, provisioning profile, build log, `.dSYM`, or cache. The release command also checks that ZIP member contents match the inspected application files.
+The unpacked applications are retained in the same output directory for inspection. Publish only the documented DMG, three ZIPs, and three reports. Do not upload a working directory, Xcode archive, provisioning profile, build log, `.dSYM`, or cache.
+
+The release command also checks that the source and application ZIPs exactly match the
+inspected files, including Unix regular-file types and permissions. The archive regression
+extracts synthetic source and app ZIPs with macOS `ditto` and verifies that setup scripts
+and application binaries remain executable.
 
 To inspect a prepared output again:
 

@@ -12,6 +12,7 @@ import ipaddress
 from pathlib import Path, PurePosixPath
 import plistlib
 import re
+import stat
 import subprocess
 import sys
 import zipfile
@@ -20,10 +21,14 @@ from xml.parsers.expat import ExpatError
 
 SOURCE_ROOT_FILES = (
     ".gitignore", "Package.swift", "README.md", "PRIVACY.md", "BUILD.md",
-    "LICENSE", "CONTRIBUTING.md", "SECURITY.md",
+    "LICENSE", "CONTRIBUTING.md", "SECURITY.md", "AGENTS.md",
 )
 SOURCE_DIRECTORIES = ("Sources", "Tests", "VisionTests", "VisionApp", "script", "docs/images")
 SOURCE_DOCUMENTS = (
+    ".github/ISSUE_TEMPLATE/bug_report.md",
+    ".github/ISSUE_TEMPLATE/feature_request.md",
+    ".github/pull_request_template.md",
+    ".github/workflows/ci.yml",
     "docs/TESTFLIGHT.md",
     "docs/INSTALL.md",
     "docs/VISUAL_GUIDE.md",
@@ -226,10 +231,22 @@ def main() -> int:
     artifacts = arguments.artifacts.resolve() if arguments.artifacts else None
     if artifacts is not None:
         apps = [artifacts / "macOS/VisionDeskMac.app", artifacts / "visionOS/VisionDesk.app"]
-        archive_apps = {
-            "VisionDesk-macOS-arm64.zip": apps[0],
-            "VisionDesk-visionOS-arm64-unsigned.zip": apps[1],
+        archive_files = {
+            name: {app.name + "/" + path.relative_to(app).as_posix(): path
+                   for path in app.rglob("*") if path.is_file()}
+            for name, app in (("VisionDesk-macOS-arm64.zip", apps[0]),
+                              ("VisionDesk-visionOS-arm64-unsigned.zip", apps[1]))
         }
+        try:
+            version = plistlib.loads((root / "script/MacInfo.plist").read_bytes())["CFBundleShortVersionString"]
+            if not isinstance(version, str) or not re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", version):
+                raise ValueError("Invalid release version")
+            archive_files[f"VisionDesk-{version}-source.zip"] = {
+                f"VisionDesk-{version}/" + path.relative_to(root).as_posix(): path
+                for path in source_inventory(root)
+            }
+        except (OSError, ValueError, KeyError, TypeError, plistlib.InvalidFileException):
+            issue("script/MacInfo.plist", "unreadable-source-archive-version")
         # Compare against the reviewed source notice, not merely a filename or nonempty file.
         # Archive equality below also requires the identical notice in the zipped app.
         required_licenses = (
@@ -297,7 +314,7 @@ def main() -> int:
                     issue(bundle.relative_to(artifacts).as_posix(), "unreadable-code-signature")
                 elif bundle == apps[0]:
                     issue(bundle.relative_to(artifacts).as_posix(), "missing-mac-ad-hoc-signature")
-        for archive_name, app in archive_apps.items():
+        for archive_name, expected_files in archive_files.items():
             archive = artifacts / archive_name
             if not archive.is_file():
                 issue(archive_name, "missing-archive")
@@ -319,17 +336,22 @@ def main() -> int:
                         if forbidden_name(name) or member.file_size > MAX_MEMBER_BYTES:
                             issue(f"{archive_name}:{name}", "forbidden-archive-member")
                             continue
-                        if not name.startswith(app.name + "/"):
-                            issue(f"{archive_name}:{name}", "unexpected-archive-root")
+                        counterpart = expected_files.get(name)
+                        if counterpart is None:
+                            issue(f"{archive_name}:{name}", "unexpected-archive-member")
                             continue
                         data = zipped.read(member)
                         inspect_bytes(data, f"{archive_name}:{name}")
-                        counterpart = app.parent / name
-                        if not counterpart.is_file() or hashlib.sha256(data).digest() != hashlib.sha256(counterpart.read_bytes()).digest():
+                        if counterpart.is_symlink() or not counterpart.is_file():
+                            issue(f"{archive_name}:{name}", "missing-or-symbolic-archive-source")
+                            continue
+                        expected_mode = stat.S_IFREG | (counterpart.stat().st_mode & 0o777)
+                        if member.create_system != 3 or member.external_attr >> 16 != expected_mode:
+                            issue(f"{archive_name}:{name}", "archive-file-mode-mismatch")
+                        if hashlib.sha256(data).digest() != hashlib.sha256(counterpart.read_bytes()).digest():
                             issue(f"{archive_name}:{name}", "archive-content-mismatch")
                         counts["archiveMembers"] += 1
-                    expected = {app.name + "/" + path.relative_to(app).as_posix() for path in app.rglob("*") if path.is_file()}
-                    if expected != {member.filename for member in members if not member.is_dir()}:
+                    if set(expected_files) != {member.filename for member in members if not member.is_dir()}:
                         issue(archive_name, "archive-inventory-mismatch")
             except (OSError, ValueError, zipfile.BadZipFile):
                 issue(archive_name, "unreadable-archive")
@@ -337,7 +359,7 @@ def main() -> int:
     report = {
         "passed": not issues,
         "scope": "allowlisted source and prepared applications/archives" if artifacts else "allowlisted source",
-        "checks": ["credential signatures", "personal filesystem paths", "build-user identifiers", "current host interface IPv4", "UTF-16 text", "forbidden source names", "neutral Xcode signing settings"] + (["forbidden artifacts", "code-signing identity", "hardened runtime and entitlements", "exact Enigo license", "exact project licenses", "archive equality"] if artifacts else []),
+        "checks": ["credential signatures", "personal filesystem paths", "build-user identifiers", "current host interface IPv4", "UTF-16 text", "forbidden source names", "neutral Xcode signing settings"] + (["forbidden artifacts", "code-signing identity", "hardened runtime and entitlements", "exact Enigo license", "exact project licenses", "source and app archive equality", "Unix file types and permissions"] if artifacts else []),
         "counts": counts,
         "sourceDigestSHA256": source_digest(root) if not any(i["category"] == "missing-or-symbolic-source-file" for i in issues) else None,
         "issues": issues,

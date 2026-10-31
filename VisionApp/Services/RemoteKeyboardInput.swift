@@ -164,7 +164,7 @@ class RemoteKeyboardTextView: UITextView, UITextViewDelegate {
                 // This component interrupted an active keyboard, rather than the wearer
                 // dismissing it. Restore that intent when the live gate becomes available.
                 attemptedFocusRequest = nil
-                if isFirstResponder { resignFirstResponder() }
+                if isFirstResponder { _ = resignFirstResponder() }
             }
             cancelComposition()
         }
@@ -176,7 +176,7 @@ class RemoteKeyboardTextView: UITextView, UITextViewDelegate {
         inputIsEnabled = false
         pendingFocus?.cancel()
         pendingFocus = nil
-        if isFirstResponder { resignFirstResponder() }
+        if isFirstResponder { _ = resignFirstResponder() }
         cancelComposition()
         isEditable = false
         onText = nil

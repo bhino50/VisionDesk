@@ -76,6 +76,31 @@ See [BUILD.md](BUILD.md) for local builds, verification, and the privacy release
 
 Build and automated-test success do not establish physical headset discovery, picture quality, hand-gesture behavior, or reconnect reliability. Those require a separate check on the intended Mac, network, and headset.
 
+## Develop from source
+
+Use an Apple silicon Mac with macOS 14 or newer, full Xcode with the visionOS SDK,
+Swift 6 or newer, and Python 3. There are no external Swift package dependencies.
+
+```sh
+git clone https://github.com/bhino50/VisionDesk.git
+cd VisionDesk
+swift test
+VISION_DESK_SIGNING_IDENTITY=- ./script/build_and_run.sh --build-only
+./script/setup_vision.sh
+```
+
+The Mac command prepares an ad-hoc development app without launching it. The headset
+helper opens an isolated local Xcode project, where you choose your own signing team
+and app identifier. Keep signing credentials and configuration local. See
+[BUILD.md](BUILD.md) for test suites and [CONTRIBUTING.md](CONTRIBUTING.md) for review
+expectations. Repository access is required while this preview remains private.
+
+### Using with Codex
+
+Open the source folder in Codex. [AGENTS.md](AGENTS.md) describes the architecture,
+verified command paths, privacy boundaries, and checks to run for each part of the app.
+An automated test result should always identify its platform and test scope.
+
 ## Troubleshooting
 
 - **Mac not listed:** open the companion, start sharing, allow Local Network access, and check that both devices can communicate. Guest Wi-Fi and client isolation can block discovery. A saved Mac may need pairing again after its Bonjour name changes.

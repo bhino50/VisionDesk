@@ -6,6 +6,7 @@ import io
 import json
 import plistlib
 from pathlib import Path
+import stat
 import subprocess
 import tempfile
 import zipfile
@@ -18,6 +19,24 @@ import verify_release_privacy as privacy
 class ReleasePrivacyTests(unittest.TestCase):
     def setUp(self):
         self.patterns = privacy.detectors(host_addresses=set())
+
+    def test_public_contributor_files_are_included_without_private_github_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            public_files = (
+                "AGENTS.md", ".github/ISSUE_TEMPLATE/bug_report.md",
+                ".github/ISSUE_TEMPLATE/feature_request.md",
+                ".github/pull_request_template.md", ".github/workflows/ci.yml",
+            )
+            private_file = ".github/local-deployment-notes.md"
+            for relative in (*public_files, private_file):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("Synthetic contributor fixture\n")
+            inventory = {path.relative_to(root).as_posix()
+                         for path in privacy.source_inventory(root)}
+            self.assertTrue(set(public_files).issubset(inventory))
+            self.assertNotIn(private_file, inventory)
 
     def test_privacy_manifests_are_included_in_source_inventory(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -91,7 +110,8 @@ class ReleasePrivacyTests(unittest.TestCase):
         self.assertNotIn("current-host-ipv4", privacy.content_findings((address + "0").encode(), patterns))
 
     def inspect_license_fixture(self, bundled_notice, *, omit_archive_notice=False, symbolic=False, project_license_fault=None,
-                                mac_flags=b"flags=0x10000(runtime)", mac_entitlements=b""):
+                                mac_flags=b"flags=0x10000(runtime)", mac_entitlements=b"",
+                                archive_fault=None):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve() / "source"
             artifacts = root.parent / "artifacts"
@@ -105,6 +125,17 @@ class ReleasePrivacyTests(unittest.TestCase):
             vision.mkdir(parents=True)
             project_notice = root / "LICENSE"
             project_notice.write_bytes(b"Synthetic project MIT license notice.\n")
+            source_info = root / "script/MacInfo.plist"
+            source_info.parent.mkdir(parents=True)
+            source_info.write_bytes(plistlib.dumps({"CFBundleShortVersionString": "1.2.3"}))
+            setup = root / "script/setup_vision.sh"
+            setup.write_bytes(b"#!/bin/sh\nexit 0\n")
+            setup.chmod(0o755)
+            source_files = [source_notice, project_notice, source_info, setup]
+            for executable in (mac / "Contents/MacOS/VisionDeskMac", vision / "VisionDesk"):
+                executable.parent.mkdir(parents=True, exist_ok=True)
+                executable.write_bytes(b"Synthetic executable fixture.\n")
+                executable.chmod(0o755)
             project_targets = {"macOS": mac / "Contents/Resources/LICENSE", "visionOS": vision / "LICENSE"}
             for platform, target in project_targets.items():
                 fault = project_license_fault[1] if project_license_fault and project_license_fault[0] == platform else None
@@ -119,12 +150,28 @@ class ReleasePrivacyTests(unittest.TestCase):
                 notice.symlink_to(source_notice)
             elif bundled_notice is not None:
                 notice.write_bytes(bundled_notice)
-            for archive_name, app in (("VisionDesk-macOS-arm64.zip", mac),
-                                      ("VisionDesk-visionOS-arm64-unsigned.zip", vision)):
+            archive_inputs = (
+                ("macOS", "VisionDesk-macOS-arm64.zip", mac, mac.name, list(mac.rglob("*"))),
+                ("visionOS", "VisionDesk-visionOS-arm64-unsigned.zip", vision, vision.name, list(vision.rglob("*"))),
+                ("source", "VisionDesk-1.2.3-source.zip", root, "VisionDesk-1.2.3", source_files),
+            )
+            for scope, archive_name, tree, prefix, files in archive_inputs:
+                fault = archive_fault[1] if archive_fault and archive_fault[0] == scope else None
+                if fault == "missing":
+                    continue
                 with zipfile.ZipFile(artifacts / archive_name, "w") as archive:
-                    for path in app.rglob("*"):
+                    for path in files:
                         if path.is_file() and not omit_archive_notice:
-                            archive.write(path, app.name + "/" + path.relative_to(app).as_posix())
+                            name = prefix + "/" + path.relative_to(tree).as_posix()
+                            info = zipfile.ZipInfo.from_file(path, name)
+                            if fault == "permissions-only":
+                                info.external_attr = (path.stat().st_mode & 0o777) << 16
+                            elif fault == "permissions":
+                                info.external_attr = (stat.S_IFREG | 0o600) << 16
+                            data = b"Tampered fixture" if fault == "content" else path.read_bytes()
+                            archive.writestr(info, data)
+                    if fault == "unexpected-member":
+                        archive.writestr(prefix + "/unexpected.txt", b"fixture")
             output = io.StringIO()
             signature = subprocess.CompletedProcess([], 0, b"Signature=adhoc\nTeamIdentifier=not set\n" + mac_flags + b"\n", b"")
 
@@ -132,7 +179,7 @@ class ReleasePrivacyTests(unittest.TestCase):
                 if "--entitlements" in command:
                     return subprocess.CompletedProcess(command, 0, mac_entitlements, b"")
                 return signature
-            with patch.object(privacy, "source_inventory", return_value=[source_notice, project_notice]), \
+            with patch.object(privacy, "source_inventory", return_value=source_files), \
                  patch.object(privacy, "detectors", return_value=[]), \
                  patch.object(privacy.subprocess, "run", side_effect=signing_result), \
                  patch("sys.argv", ["privacy-inspection", "--source", str(root), "--artifacts", str(artifacts)]), \
@@ -143,6 +190,27 @@ class ReleasePrivacyTests(unittest.TestCase):
     def test_exact_license_in_app_and_archive_passes(self):
         result, issues = self.inspect_license_fixture(b"Synthetic upstream copyright and license notice.\n")
         self.assertEqual((result, issues), (0, set()))
+
+    def test_source_and_app_archives_require_regular_file_type_and_matching_permissions(self):
+        for scope in ("macOS", "visionOS", "source"):
+            for fault in ("permissions-only", "permissions"):
+                with self.subTest(scope=scope, fault=fault):
+                    result, issues = self.inspect_license_fixture(
+                        b"Synthetic upstream copyright and license notice.\n",
+                        archive_fault=(scope, fault))
+                    self.assertEqual(result, 1)
+                    self.assertIn("archive-file-mode-mismatch", issues)
+
+    def test_source_archive_must_exist_and_match_exact_source_bytes_and_inventory(self):
+        for fault, category in (("missing", "missing-archive"),
+                                ("content", "archive-content-mismatch"),
+                                ("unexpected-member", "archive-inventory-mismatch")):
+            with self.subTest(fault=fault):
+                result, issues = self.inspect_license_fixture(
+                    b"Synthetic upstream copyright and license notice.\n",
+                    archive_fault=("source", fault))
+                self.assertEqual(result, 1)
+                self.assertIn(category, issues)
 
     def test_mac_release_without_runtime_is_rejected_even_with_valid_signature(self):
         for flags in (b"", b"flags=0x0(none)", b"flags=0x1000(library-validation)"):

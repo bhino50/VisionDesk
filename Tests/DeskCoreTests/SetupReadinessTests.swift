@@ -158,12 +158,13 @@ final class SetupReadinessTests: XCTestCase {
                        "Test input state is observed separately from capture permission")
     }
 
-    func testOneDisplayWorksWhileTheFourDisplayGoalStaysVisible() throws {
+    func testOneDisplayWorksWithOptionalExpansionGuidance() throws {
         let single = SetupReadiness(snapshot: snapshot(displays: 1, sharing: true, connected: true))
         XCTAssertEqual(single.displays.status, .ready)
         XCTAssertEqual(single.status(of: .viewing), .ready, "A single display must not block viewing")
         let singleNote = try XCTUnwrap(single.displayGoalNote)
-        XCTAssertTrue(singleNote.contains("other 3"), "The reminder must name the three missing monitors")
+        XCTAssertTrue(singleNote.contains("One display is enough"))
+        XCTAssertTrue(singleNote.contains("Extra desktops"), "Guidance must account for optional virtual screens")
 
         let pair = SetupReadiness(snapshot: snapshot(displays: 2, sharing: true, connected: true))
         let pairNote = try XCTUnwrap(pair.displayGoalNote)
@@ -178,7 +179,7 @@ final class SetupReadinessTests: XCTestCase {
         XCTAssertEqual(five.displays.status, .actionNeeded)
         XCTAssertNotEqual(five.status(of: .viewing), .ready)
         XCTAssertEqual(five.primaryNextStep, five.displays.nextStep)
-        XCTAssertTrue(try XCTUnwrap(five.displays.nextStep).contains("Disconnect 1 display "))
+        XCTAssertTrue(try XCTUnwrap(five.displays.nextStep).contains("Other monitors can stay connected"))
         XCTAssertNil(five.displayGoalNote)
 
         let none = SetupReadiness(snapshot: snapshot(displays: 0, sharing: true, connected: true))

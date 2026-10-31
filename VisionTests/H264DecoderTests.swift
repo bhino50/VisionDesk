@@ -668,7 +668,7 @@ final class BoundedDisplayWorkerTests: XCTestCase {
     func testResetStormCannotReplaceBlockedJPEGWorkerOrPublishItsObsoleteImage() async throws {
         let gate = NativeWorkGate("jpeg")
         defer { gate.release() }
-        let stream = DisplayStream(info: DeskFixtures.display, beforeNativeWork: gate.enter)
+        let stream = DisplayStream(info: DeskFixtures.display, beforeNativeWork: { @Sendable kind in gate.enter(kind) })
         let jpeg = try XCTUnwrap(DeskFixtures.jpeg())
         stream.accept(jpeg: jpeg)
         try await Loopback.waitUntil { gate.snapshot == ["jpeg"] }
@@ -691,7 +691,7 @@ final class BoundedDisplayWorkerTests: XCTestCase {
     func testAlternatingSourcesRemainBoundedBehindBlockedVideo() async throws {
         let gate = NativeWorkGate("video")
         defer { gate.release() }
-        let stream = DisplayStream(info: DeskFixtures.display, beforeNativeWork: gate.enter)
+        let stream = DisplayStream(info: DeskFixtures.display, beforeNativeWork: { @Sendable kind in gate.enter(kind) })
         let jpeg = try XCTUnwrap(DeskFixtures.jpeg())
         let first = try XCTUnwrap(H264Fixture.frames.first)
         stream.accept(video: first)
@@ -715,7 +715,7 @@ final class BoundedDisplayWorkerTests: XCTestCase {
     func testRetirementMustFinishBeforeAnyReplacementNativeWork() async throws {
         let gate = NativeWorkGate("retire")
         defer { gate.release() }
-        let stream = DisplayStream(info: DeskFixtures.display, beforeNativeWork: gate.enter)
+        let stream = DisplayStream(info: DeskFixtures.display, beforeNativeWork: { @Sendable kind in gate.enter(kind) })
         let first = try XCTUnwrap(H264Fixture.frames.first)
         let jpeg = try XCTUnwrap(DeskFixtures.jpeg())
         stream.accept(video: first)
@@ -803,7 +803,7 @@ extension BoundedDisplayWorkerTests {
         for id in 1...DisplayStream.maximumNativeWorkers {
             var info = DeskFixtures.display
             info.id = UInt32(id)
-            let stream = DisplayStream(info: info, beforeNativeWork: gate.enter)
+            let stream = DisplayStream(info: info, beforeNativeWork: { @Sendable kind in gate.enter(kind) })
             streams.append(stream)
             stream.accept(jpeg: jpeg)
         }
@@ -814,7 +814,7 @@ extension BoundedDisplayWorkerTests {
         for id in 10..<110 {
             var info = DeskFixtures.display
             info.id = UInt32(id)
-            let replacement = DisplayStream(info: info, beforeNativeWork: gate.enter)
+            let replacement = DisplayStream(info: info, beforeNativeWork: { @Sendable kind in gate.enter(kind) })
             streams.append(replacement)
             replacement.accept(jpeg: jpeg)
         }

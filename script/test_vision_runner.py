@@ -139,6 +139,9 @@ raise SystemExit(int(os.environ.get('FIXTURE_TEST_STATUS', '0')))
         self.assertEqual(arguments[arguments.index("-destination") + 1],
                          "platform=visionOS Simulator,id=" + VISION_ID)
         self.assertEqual(arguments[arguments.index("-parallel-testing-enabled") + 1], "NO")
+        self.assertEqual(arguments[arguments.index("-test-timeouts-enabled") + 1], "YES")
+        self.assertEqual(arguments[arguments.index("-default-test-execution-time-allowance") + 1], "120")
+        self.assertEqual(arguments[arguments.index("-maximum-test-execution-time-allowance") + 1], "120")
 
     def test_failed_native_run_returns_failure_and_preserves_log_and_result(self):
         self.environment["FIXTURE_TEST_STATUS"] = "65"

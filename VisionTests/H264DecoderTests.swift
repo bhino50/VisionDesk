@@ -786,31 +786,54 @@ private final class AllNativeWorkGate: @unchecked Sendable {
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
     private var entries = 0
+    private var expiredWaits = 0
+    private var firstEntryAction: (@MainActor @Sendable () -> Void)?
+    func onFirstEntry(_ action: @escaping @MainActor @Sendable () -> Void) {
+        lock.lock(); firstEntryAction = action; lock.unlock()
+    }
+    func discardFirstEntryAction() {
+        lock.lock(); firstEntryAction = nil; lock.unlock()
+    }
     func enter(_ kind: String) {
-        lock.lock(); entries += 1; lock.unlock()
-        semaphore.wait()
+        lock.lock()
+        entries += 1
+        let action = entries == 1 ? firstEntryAction : nil
+        if entries == 1 { firstEntryAction = nil }
+        lock.unlock()
+        // A plain main-queue callback can release native work without first resuming
+        // a Swift async task on the cooperative pool that the gate may have occupied.
+        if let action { DispatchQueue.main.async { action() } }
+        // A failing test must never strand a cooperative executor thread indefinitely.
+        if semaphore.wait(timeout: .now() + 10) == .timedOut {
+            lock.lock(); expiredWaits += 1; lock.unlock()
+        }
     }
     var count: Int { lock.lock(); defer { lock.unlock() }; return entries }
+    var timeoutCount: Int { lock.lock(); defer { lock.unlock() }; return expiredWaits }
     func release(_ count: Int) { for _ in 0..<count { semaphore.signal() } }
 }
 
 extension BoundedDisplayWorkerTests {
     func testNewDisplayIDsCannotCreateNativeWorkersOrWaitersBeyondProcessCap() async throws {
         let gate = AllNativeWorkGate()
-        defer { gate.release(200) }
+        defer {
+            gate.release(200)
+            XCTAssertEqual(gate.timeoutCount, 0, "Native gates must be released by the test, not their fail-safe.")
+        }
         let jpeg = try XCTUnwrap(DeskFixtures.jpeg())
-        var streams: [DisplayStream] = []
+        var originals: [DisplayStream] = []
         for id in 1...DisplayStream.maximumNativeWorkers {
             var info = DeskFixtures.display
             info.id = UInt32(id)
             let stream = DisplayStream(info: info, beforeNativeWork: { @Sendable kind in gate.enter(kind) })
-            streams.append(stream)
+            originals.append(stream)
             stream.accept(jpeg: jpeg)
         }
-        try await Loopback.waitUntil { gate.count == DisplayStream.maximumNativeWorkers }
-        // This is the removal path: old stream work outlives its place in the model.
-        for stream in streams { stream.clear() }
-        streams.removeAll()
+        // Admission reserves all four leases synchronously on the main actor. Submit every
+        // replacement before yielding, so no original can finish and return capacity first.
+        // Keep the originals alive while their work drains: a small cooperative pool need
+        // not execute all four detached tasks simultaneously for all four to be admitted.
+        var streams: [DisplayStream] = []
         for id in 10..<110 {
             var info = DeskFixtures.display
             info.id = UInt32(id)
@@ -818,18 +841,78 @@ extension BoundedDisplayWorkerTests {
             streams.append(replacement)
             replacement.accept(jpeg: jpeg)
         }
-        try await Loopback.pause(0.1)
-        XCTAssertEqual(gate.count, DisplayStream.maximumNativeWorkers)
+        // Release before the first suspension. All four leases are already reserved;
+        // proving admission does not require four simultaneously executing native calls.
         gate.release(DisplayStream.maximumNativeWorkers)
+        try await Loopback.waitUntil { originals.allSatisfy { $0.image != nil } }
         try await Loopback.pause(0.2)
         // If saturated callers queued suspended or detached waiters, releasing the old
         // workers would start them now. Dropped work must stay dropped instead.
         XCTAssertEqual(gate.count, DisplayStream.maximumNativeWorkers)
         XCTAssertTrue(streams.allSatisfy { $0.image == nil })
         let survivor = try XCTUnwrap(streams.last)
-        survivor.accept(jpeg: jpeg)
-        try await Loopback.waitUntil { gate.count == DisplayStream.maximumNativeWorkers + 1 }
         gate.release(1)
+        survivor.accept(jpeg: jpeg)
         try await Loopback.waitUntil { survivor.image != nil }
+        XCTAssertEqual(gate.count, DisplayStream.maximumNativeWorkers + 1)
+    }
+
+    func testRemovedDisplayRetainsItsBlockedWorkerUntilNativeWorkFinishes() async throws {
+        let gate = AllNativeWorkGate()
+        defer {
+            gate.discardFirstEntryAction()
+            gate.release(200)
+            XCTAssertEqual(gate.timeoutCount, 0, "Native gates must be released by the test, not their fail-safe.")
+        }
+        let jpeg = try XCTUnwrap(DeskFixtures.jpeg())
+        var original: DisplayStream? = DisplayStream(
+            info: DeskFixtures.display, beforeNativeWork: { @Sendable kind in gate.enter(kind) }
+        )
+        weak var removed = original
+        var fillers: [DisplayStream] = []
+        var replacements: [DisplayStream] = []
+        var stagedRemoval = false
+        gate.onFirstEntry {
+            // Release even if an assertion fails. No async suspension is allowed between
+            // the confirmed blocked native entry and releasing the admitted work.
+            defer { gate.release(DisplayStream.maximumNativeWorkers) }
+            XCTAssertEqual(gate.count, 1)
+            // Reserve every other lease before clearing the blocked original. Fillers
+            // need not have started: admission, not executor width, sets the budget.
+            for id in 2...DisplayStream.maximumNativeWorkers {
+                var info = DeskFixtures.display
+                info.id = UInt32(id)
+                let filler = DisplayStream(info: info, beforeNativeWork: { @Sendable kind in gate.enter(kind) })
+                fillers.append(filler)
+                filler.accept(jpeg: jpeg)
+            }
+            original?.clear()
+            original = nil
+            // The model removed this display, but its in-flight native call must still
+            // own the stream and its lease. An early lease release admits a replacement.
+            XCTAssertNotNil(removed)
+            XCTAssertNil(removed?.image)
+            for id in 10..<110 {
+                var info = DeskFixtures.display
+                info.id = UInt32(id)
+                let replacement = DisplayStream(info: info, beforeNativeWork: { @Sendable kind in gate.enter(kind) })
+                replacements.append(replacement)
+                replacement.accept(jpeg: jpeg)
+            }
+            stagedRemoval = true
+        }
+        original?.accept(jpeg: jpeg)
+        try await Loopback.waitUntil {
+            stagedRemoval && removed == nil && fillers.allSatisfy { $0.image != nil }
+        }
+        try await Loopback.pause(0.2)
+        XCTAssertEqual(gate.count, DisplayStream.maximumNativeWorkers)
+        XCTAssertTrue(replacements.allSatisfy { $0.image == nil })
+
+        let replacement = try XCTUnwrap(replacements.last)
+        gate.release(1)
+        replacement.accept(jpeg: jpeg)
+        try await Loopback.waitUntil { replacement.image != nil }
+        XCTAssertEqual(gate.count, DisplayStream.maximumNativeWorkers + 1)
     }
 }

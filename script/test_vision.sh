@@ -55,6 +55,9 @@ RESULTS="$RUN_DIR/VisionTests.xcresult"
     -resultBundlePath "$RESULTS" \
     -collect-test-diagnostics never \
     -parallel-testing-enabled NO \
+    -test-timeouts-enabled YES \
+    -default-test-execution-time-allowance 120 \
+    -maximum-test-execution-time-allowance 120 \
     CODE_SIGNING_ALLOWED=NO ARCHS=arm64 \
     test 2>&1 | tee "$RUN_DIR/xcodebuild.log"
 

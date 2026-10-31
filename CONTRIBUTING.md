@@ -29,6 +29,7 @@ python3 script/test_release_archive.py
 python3 script/test_release_privacy.py
 python3 script/test_repository_privacy.py
 python3 script/test_mac_dmg.py
+python3 script/test_vision_runner.py
 python3 script/verify_release_privacy.py --source .
 python3 script/verify_repository.py --source .
 ```
@@ -51,8 +52,10 @@ bug reports, include version, platform, repeatable steps, expected result, and a
 result. Keep vulnerability details out of public issues; follow [SECURITY.md](SECURITY.md).
 
 The GitHub workflow runs shared tests, Mac behavior and startup checks, Python packaging
-checks, source/history inspection, and an unsigned visionOS simulator build. It does
-not sign, publish, install, inject input, or establish physical headset acceptance.
+checks, source/history inspection, and the native visionOS test suite in a job-owned
+simulator. It preserves failed native test logs and result bundles for seven days.
+It does not sign for distribution, publish, install on a physical device, inject Mac
+input, or establish physical headset acceptance.
 Hosted CI results are meaningful only after a workflow has actually run on the commit.
 
 Restore the neutral Xcode project after local signing as described in BUILD.md.

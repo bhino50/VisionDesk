@@ -71,6 +71,70 @@ func runHostRecoveryChecks(_ runner: CheckRunner) async {
         model.stop()
     }
 
+    await runner.check("Unavailable source geometry retries without persisting a hosting stop") {
+        var preparations = 0
+        var saved = checkRemoteConfiguration
+        let geometryFailure = DisplayCaptureSize.Failure.invalidSourceGeometry
+        let recorder = KeepAwakeRecorder()
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in },
+                                   saveLANConfiguration: { _ in }, remoteConfiguration: saved,
+                                   localAddresses: checkLocalAddresses, loadRemoteKey: { key },
+                                   saveRemoteConfiguration: { saved = $0 },
+                                   contentProvider: { preparations += 1; throw geometryFailure },
+                                   inventory: { [syntheticDisplay(1)] }, liveSession: { available },
+                                   keepAwake: recorder.hold, screenCaptureAccess: { true })
+        recorder.hold.hold()
+        model.start()
+        await drainMainActor()
+        runner.expectEqual(CaptureFailure(geometryFailure).disposition, .retry,
+                           "a display can disappear after inventory but before its live pixel-width query")
+        runner.expect(!model.busy && !model.sharing && model.restartPending && model.autoRecoveryArmed,
+                      "invalid source dimensions enter the existing unattended recovery path")
+        runner.expect(!saved.sharingStopped, "temporary source loss does not persist the owner's Stop choice")
+        runner.expect(model.screenPermission, "source loss does not revoke granted recording permission")
+        runner.expect(model.status.contains("invalid capture dimensions") && model.status.hasSuffix("Retrying in 2 s."),
+                      "the retry preserves its geometry reason and initial backoff")
+        await waitUntil(seconds: 4) { preparations >= 2 }
+        await drainMainActor()
+        runner.expectEqual(preparations, 2, "the scheduled retry actually attempts capture again")
+        runner.expect(model.restartPending && model.autoRecoveryArmed && !saved.sharingStopped,
+                      "repeated source loss remains recoverable without changing saved hosting")
+        runner.expect(model.status.hasSuffix("Retrying in 4 s."), "repeated source loss uses increasing backoff")
+        model.stop()
+        runner.expect(!recorder.hold.isHeld && !model.restartPending, "the owner's stop still ends recovery")
+    }
+
+    await runner.check("Unrepresentable capture geometry stops saved hosting without changing permission state") {
+        var preparations = 0
+        var saved = checkRemoteConfiguration
+        let geometryFailure = DisplayCaptureSize.Failure.unrepresentableAspectRatio
+        let recorder = KeepAwakeRecorder()
+        let model = CompanionModel(loadLANKey: { PairingKey.generate() }, saveLANKey: { _ in },
+                                   saveLANConfiguration: { _ in }, remoteConfiguration: saved,
+                                   localAddresses: checkLocalAddresses, loadRemoteKey: { key },
+                                   saveRemoteConfiguration: { saved = $0 },
+                                   contentProvider: { preparations += 1; throw geometryFailure },
+                                   inventory: { [syntheticDisplay(1)] }, liveSession: { available },
+                                   keepAwake: recorder.hold, screenCaptureAccess: { true })
+        recorder.hold.hold()
+        model.start()
+        await drainMainActor()
+        runner.expectEqual(CaptureFailure(geometryFailure).disposition, .invalidGeometry,
+                           "an unrepresentable positive aspect ratio has a terminal classification")
+        runner.expect(!model.busy && !model.sharing && !model.restartPending && !model.autoRecoveryArmed,
+                      "impossible geometry cannot loop through automatic capture restarts")
+        runner.expect(model.screenPermission, "a geometry rejection must not pretend permission was denied")
+        runner.expect(saved.sharingStopped, "the terminal stop survives saved-host startup")
+        runner.expect(!recorder.hold.isHeld, "a rejected capture cannot keep the Mac awake")
+        runner.expect(model.status.contains("Change the display resolution or arrangement"),
+                      "the owner gets a geometry-specific recovery action")
+        model.selfHealRemoteHosting(now: ProcessInfo.processInfo.systemUptime + 100)
+        model.startSavedHosting()
+        await drainMainActor()
+        runner.expectEqual(preparations, 1, "self-heal and saved startup preserve the terminal stop")
+        model.stop()
+    }
+
     await runner.check("An interrupted capture retries on its own and keeps the unattended Mac awake meanwhile") {
         var loads = 0
         let recorder = KeepAwakeRecorder()

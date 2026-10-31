@@ -15,7 +15,7 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     static let jpegQuality = 0.76
     static let videoFrameRate = 30
     static let legacyFrameRate = 12
-    static let maximumWidth = 1_920
+    static let maximumWidth = DisplayCaptureSize.maximumWidth
     /// Holding one buffer back for the idle repeat has to leave the stream room to keep
     /// filling, so the video path asks for a deeper queue than the JPEG-only path. The JPEG
     /// output holds at most one frame, and only while pacing has one pending.
@@ -42,6 +42,7 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     /// without it the failure is reported through `onFailure` exactly as before.
     private let onVideoUnavailable: (@Sendable (String) -> Void)?
     private var stream: SCStream?
+    private var sizingFailure: Error?
 
     // Touched only from the serial capture queue. Monotonic: a backward wall-clock step must not
     // stall idle repeats for a static screen.
@@ -91,17 +92,18 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         self.onVideoUnavailable = onVideoUnavailable
         self.onFailure = onFailure
         super.init()
-        let config = SCStreamConfiguration()
-        var width = min(Self.maximumWidth, CGDisplayPixelsWide(display.displayID))
-        var height = max(2, Int(Double(width) * Double(display.height) / Double(display.width)))
-        if onEncodedFrame != nil {
-            // 4:2:0 has no odd edge. Rounding here, and only here, keeps the JPEG-only path
-            // byte-for-byte what it was.
-            width = max(EncodedVideoFrame.minimumDimension, width - width % 2)
-            height = max(EncodedVideoFrame.minimumDimension, height - height % 2)
+        let size: DisplayCaptureSize
+        do {
+            size = try DisplayCaptureSize(pixelWidth: CGDisplayPixelsWide(display.displayID),
+                                          aspectWidth: display.width, aspectHeight: display.height,
+                                          format: onEncodedFrame == nil ? .jpeg : .h264)
+        } catch {
+            sizingFailure = error
+            return
         }
-        config.width = width
-        config.height = height
+        let config = SCStreamConfiguration()
+        config.width = size.width
+        config.height = size.height
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(onEncodedFrame == nil ? Self.legacyFrameRate : Self.videoFrameRate))
         config.queueDepth = onEncodedFrame == nil ? Self.legacyQueueDepth : Self.videoQueueDepth
         config.showsCursor = true
@@ -111,6 +113,7 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     }
 
     func start() async throws {
+        if let sizingFailure { throw sizingFailure }
         guard let stream else { return }
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await stream.startCapture()
@@ -571,13 +574,15 @@ struct DisplayLimitExceeded: LocalizedError, Equatable {
 
 /// Why capture ended, and whether the companion may start it again on its own.
 ///
-/// An unattended host used to retry every capture stop. Three outcomes are not worth retrying.
+/// An unattended host used to retry every capture stop. Four outcomes are not worth retrying.
 /// A stop from the macOS screen-sharing controls is the owner's own choice, and restarting
 /// capture seconds later would override it. A refused recording permission or missing
 /// entitlement cannot succeed until the owner changes System Settings, so retrying only repeats
 /// the refusal every 30 seconds indefinitely. More displays than a session carries cannot be
 /// shared until one is disconnected; retrying that held the Mac awake indefinitely while nothing
-/// was shared. ScreenCaptureKit codes are matched together with their domain, and every other
+/// was shared. An unrepresentable aspect ratio also needs an owner resolution change; unavailable
+/// source dimensions can instead be a display disconnected after the inventory snapshot.
+/// ScreenCaptureKit codes are matched together with their domain, and every other
 /// error keeps the previous retry behavior.
 struct CaptureFailure: Equatable, Sendable {
     enum Disposition: Equatable, Sendable {
@@ -590,6 +595,8 @@ struct CaptureFailure: Equatable, Sendable {
         case notPermitted
         /// More displays are connected than a session carries (`DisplayLimitExceeded`).
         case unsupportedArrangement
+        /// The source cannot fit a safe capture surface without changing its aspect ratio.
+        case invalidGeometry
     }
 
     let disposition: Disposition
@@ -597,9 +604,16 @@ struct CaptureFailure: Equatable, Sendable {
 
     init(_ error: Error) {
         let nsError = error as NSError
-        disposition = error is DisplayLimitExceeded
-            ? .unsupportedArrangement
-            : Self.disposition(domain: nsError.domain, code: nsError.code)
+        if let geometryFailure = error as? DisplayCaptureSize.Failure {
+            switch geometryFailure {
+            case .invalidSourceGeometry: disposition = .retry
+            case .unrepresentableAspectRatio: disposition = .invalidGeometry
+            }
+        } else if error is DisplayLimitExceeded {
+            disposition = .unsupportedArrangement
+        } else {
+            disposition = Self.disposition(domain: nsError.domain, code: nsError.code)
+        }
         reason = nsError.localizedDescription
     }
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Hosted visionOS XCTest run for the native client.
-# Requires the verified Xcode 27 toolchain. Normal logs and the xcresult are preserved;
+# Requires full Xcode with an available visionOS SDK/runtime. Each run gets unique results;
 # verbose simulator diagnostic attachment collection is disabled after a collection hang.
 #
 # Drives the production DeskClientModel and the production UIKit frame decoder against a real
@@ -33,27 +33,29 @@ if [[ -z "$SIM_ID" ]]; then
     echo "  xcrun simctl list devices available | grep -B1 -i vision" >&2
     exit 2
 fi
-if ! xcrun simctl list devices available | grep -q "$SIM_ID"; then
-    echo "Simulator $SIM_ID is not in the available device list. Pass an existing visionOS simulator." >&2
-    exit 1
-fi
+OUTPUT_BASE="${VISION_DESK_TEST_OUTPUT_BASE:-$ROOT_DIR/build/vision-tests}"
+mkdir -p "$OUTPUT_BASE"
+RUN_DIR="$(mktemp -d "$OUTPUT_BASE/run.XXXXXX")"
+echo "Native test run directory: $RUN_DIR"
+xcrun --sdk xrsimulator --show-sdk-path > "$RUN_DIR/sdk.txt"
+xcrun simctl list -j > "$RUN_DIR/simulators.json"
+SIM_ID="$(python3 "$ROOT_DIR/script/vision_simulator.py" validate "$SIM_ID" < "$RUN_DIR/simulators.json")"
 
 python3 script/generate_xcode_project.py
 
-DERIVED="build/vision-tests"
-RESULTS="$DERIVED/VisionTests.xcresult"
-# xcodebuild refuses to overwrite an existing result bundle.
-rm -rf "$RESULTS"
-mkdir -p "$DERIVED"
+DERIVED="$RUN_DIR/DerivedData"
+RESULTS="$RUN_DIR/VisionTests.xcresult"
 
 # CODE_SIGNING_ALLOWED=NO matches script/build_vision.sh. If the simulator refuses to install
 # the bundle, re-run without that setting rather than weakening any other check.
 "$XCODEBUILD" -project VisionDesk.xcodeproj -scheme VisionDesk \
     -destination "platform=visionOS Simulator,id=$SIM_ID" \
+    -destination-timeout 120 \
     -derivedDataPath "$DERIVED" \
     -resultBundlePath "$RESULTS" \
     -collect-test-diagnostics never \
+    -parallel-testing-enabled NO \
     CODE_SIGNING_ALLOWED=NO ARCHS=arm64 \
-    test
+    test 2>&1 | tee "$RUN_DIR/xcodebuild.log"
 
-echo "Result bundle: $ROOT_DIR/$RESULTS"
+echo "Result bundle: $RESULTS"

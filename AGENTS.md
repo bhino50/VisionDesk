@@ -18,6 +18,7 @@ python3 script/test_release_archive.py            # ZIP extraction and executabl
 python3 script/test_release_privacy.py           # Source/archive scanner regressions
 python3 script/test_repository_privacy.py        # Index/history scanner regressions
 python3 script/test_mac_dmg.py                    # DMG packaging regressions
+python3 script/test_vision_runner.py              # Simulator selection and test-runner failures
 python3 script/verify_release_privacy.py --source .
 python3 script/verify_repository.py --source .
 ./script/build_vision.sh simulator               # Unsigned simulator build
@@ -26,8 +27,9 @@ python3 script/verify_repository.py --source .
 
 For native tests, list devices with `xcrun simctl list devices available`, then pass an
 existing visionOS simulator UUID to `./script/test_vision.sh`. Do not reuse another
-developer's active simulator without coordination. The script replaces its previous
-result bundle; preserve evidence needed for comparisons first.
+developer's active simulator without coordination. Each run preserves its log and result
+bundle in a unique `build/vision-tests/run.*` directory. Set `VISION_DESK_TEST_OUTPUT_BASE`
+to store those runs elsewhere; keep this private evidence out of commits.
 
 `VISION_DESK_SIGNING_IDENTITY=- ./script/build_and_run.sh --build-only` prepares an
 ad-hoc Mac candidate without launching it. Ordinary launcher and diagnostic modes can

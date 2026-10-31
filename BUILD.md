@@ -24,13 +24,21 @@ python3 script/test_release_archive.py
 python3 script/test_mac_dmg.py
 python3 script/test_release_privacy.py
 python3 script/test_repository_privacy.py
+python3 script/test_vision_runner.py
 python3 script/verify_release_privacy.py --source .
 python3 script/verify_repository.py --source .
 ./script/build_vision.sh simulator
 ./script/test_vision.sh <existing-visionOS-simulator-UUID>
 ```
 
-The shared and native client suites use synthetic or loopback fixtures. The Mac behavior harness does not capture desktop pixels or inject Quartz input. The separate hardware video check uses moving-color fixtures. A command's output determines what it actually verified; do not infer physical headset success from a simulator result.
+The shared and native client suites use synthetic or loopback fixtures. The Mac behavior harness does not capture desktop pixels or inject Quartz input. The separate hardware video check uses detailed synthetic fixtures and reports encoder admission, output, throughput and teardown measurements. A command's output determines what it actually verified; do not infer physical headset success from a simulator result.
+
+Each native test invocation preserves its `xcodebuild.log` and `VisionTests.xcresult` in
+a unique `build/vision-tests/run.*` directory, including failed runs. Set
+`VISION_DESK_TEST_OUTPUT_BASE` to use another private output directory. The script requires
+an exact available visionOS simulator UUID and fails when its SDK or runtime is missing.
+It does not create or delete a local simulator. CI creates and deletes its own simulator
+and executes the same native suite using the toolchain pinned in the workflow.
 
 For the companion, `VISION_DESK_SIGNING_IDENTITY=- ./script/build_and_run.sh --build-only` prepares an ad-hoc development build without launching it. For repeated local use, set `VISION_DESK_SIGNING_IDENTITY` to an existing stable identity using your local secure configuration. Never commit that configuration. Changing application signing identity or bundle identifier can require fresh Screen Recording, Accessibility, or Keychain access.
 

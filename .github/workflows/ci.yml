@@ -16,7 +16,9 @@ concurrency:
 jobs:
   verify:
     runs-on: macos-26
-    timeout-minutes: 35
+    timeout-minutes: 50
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - name: Check out source and reachable history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -41,9 +43,48 @@ jobs:
           python3 script/test_release_privacy.py
           python3 script/test_repository_privacy.py
           python3 script/test_mac_dmg.py
+          python3 script/test_vision_runner.py
       - name: Inspect source and repository history
         run: |
           python3 script/verify_release_privacy.py --source .
           python3 script/verify_repository.py --source .
-      - name: Build visionOS simulator app
-        run: ./script/build_vision.sh simulator
+      - name: Create an isolated visionOS simulator
+        id: simulator
+        run: |
+          mkdir -p build/vision-tests-ci
+          xcrun --sdk xrsimulator --show-sdk-path > build/vision-tests-ci/sdk.txt
+          xcrun simctl list -j > build/vision-tests-ci/simulators.json
+          selection="$(python3 script/vision_simulator.py select < build/vision-tests-ci/simulators.json)"
+          IFS=$'\t' read -r runtime device_type <<< "$selection"
+          simulator_id="$(xcrun simctl create "VisionDesk CI" "$device_type" "$runtime")"
+          printf 'udid=%s\n' "$simulator_id" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$simulator_id" > build/vision-tests-ci/owned-simulator.txt
+      - name: Execute native visionOS tests
+        env:
+          VISION_DESK_SIM_ID: ${{ steps.simulator.outputs.udid }}
+          VISION_DESK_TEST_OUTPUT_BASE: build/vision-tests-ci
+        run: ./script/test_vision.sh
+      - name: Delete only the job-owned simulator
+        if: always() && steps.simulator.outputs.udid != ''
+        env:
+          VISION_DESK_SIM_ID: ${{ steps.simulator.outputs.udid }}
+        run: |
+          # A test failure may leave it booted. Delete also handles a shutdown device.
+          xcrun simctl shutdown "$VISION_DESK_SIM_ID" 2> build/vision-tests-ci/shutdown.log || true
+          xcrun simctl delete "$VISION_DESK_SIM_ID"
+      - name: Preserve native test failure evidence
+        if: always() && (failure() || cancelled())
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: visionos-test-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/vision-tests-ci/*.json
+            build/vision-tests-ci/*.txt
+            build/vision-tests-ci/*.log
+            build/vision-tests-ci/run.*/simulators.json
+            build/vision-tests-ci/run.*/sdk.txt
+            build/vision-tests-ci/run.*/xcodebuild.log
+            build/vision-tests-ci/run.*/VisionTests.xcresult/
+          if-no-files-found: warn
+          retention-days: 7

@@ -17,6 +17,10 @@ extension CompanionModel {
             stop(headsetNotice: HeadsetNotice.recordingNotAllowed)
             screenPermission = false
             status = "Screen recording is not allowed for VisionDeskMac. Allow it in Privacy & Security → Screen & System Audio Recording, then start sharing again."
+        case .invalidGeometry:
+            let explanation = "\(failure.reason) Change the display resolution or arrangement, then start sharing again."
+            stop(headsetNotice: explanation)
+            status = explanation
         case .unsupportedArrangement:
             // Starting again cannot succeed until the arrangement changes, so nothing is retried
             // and the Mac is not kept awake. A remote host refuses automatic starts while it

@@ -323,8 +323,8 @@ final class CompanionWindowLifecycle {
         return true
     }
 
-    /// A remote host keeps sharing with its window closed. A local session has nothing to return
-    /// to, so it ends with its window, as the app does.
+    /// Closing the setup window leaves the session and remembered listener available from
+    /// the menu bar. Stop Sharing and Quit remain the explicit ways to end sharing.
     @MainActor
     func windowClosed(_ model: CompanionModel) {
         // The remembered listener remains available from the menu bar when this window closes.
